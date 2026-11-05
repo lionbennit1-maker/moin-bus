@@ -1,0 +1,35 @@
+{
+  "heimat": {
+    "id": "de-DELFI_000010097603",
+    "name": "Lägerdorf Schule",
+    "lat": 53.888363,
+    "lon": 9.570723
+  },
+  "ziele": [
+    {
+      "name": "Nachhilfe (Krichauffstraße)",
+      "place": "53.9044,9.4813"
+    },
+    {
+      "name": "Opa (Hohenaspe Schulstraße)",
+      "place": "53.9894,9.5280"
+    },
+    {
+      "name": "Hamburg Hbf",
+      "place": "53.5524,10.0075"
+    },
+    {
+      "name": "Itzehoe ZOB",
+      "id": "de-DELFI_000010091802"
+    }
+  ],
+  "verspaetungAbMinuten": 5,
+  "ausfaelleVorausMinuten": 120,
+  "regenWarnungVorausMinuten": 45,
+  "ruhezeit": {
+    "von": 22,
+    "bis": 6
+  },
+  "morgenBriefUm": 6,
+  "_hinweis": "Ziele gehen mit 'id' (Haltestelle) oder 'place' (Koordinaten 'Breite,Länge'). Lulu fehlt absichtlich: die Kellinghusen-Busse sind nicht in den offenen Daten."
+}
