@@ -1,0 +1,1254 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Moin Bus</title>
+<meta name="theme-color" content="#0f2a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: Handy-App, oben Status, unten Tab-Leiste. Abfahrtstafel als LED-Anzeiger wie an der Haltestelle. */
+:root{
+  --bg:#eef3f1; --surface:#ffffff; --ink:#132326; --muted:#5a6d6f; --line:#d4dfdc;
+  --stop:#f5c400;        /* Haltestellen-Gelb */
+  --stopgreen:#0c7a43;   /* das grüne H */
+  --accent:#0f6b73;      /* Elbe */
+  --ok:#11804a; --warn:#c06a00; --bad:#c62828; --rain:#2f6fd6;
+  --led-bg:#121512; --led:#ffb627; --led-dim:#7a5a17;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1718; --surface:#152325; --ink:#e7efed; --muted:#93a7a8; --line:#25393b;
+  --accent:#4fb8bf; --ok:#43c07c; --warn:#f0a43a; --bad:#ff6b6b; --rain:#6fa3ff; --stopgreen:#3fae6f;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1718; --surface:#152325; --ink:#e7efed; --muted:#93a7a8; --line:#25393b;
+  --accent:#4fb8bf; --ok:#43c07c; --warn:#f0a43a; --bad:#ff6b6b; --rain:#6fa3ff; --stopgreen:#3fae6f;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+section.view>*,.fav>*,.card{min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-tap-highlight-color:transparent}
+.wrap{max-width:560px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:calc(env(safe-area-inset-top,0px) + 14px) calc(env(safe-area-inset-bottom,0px) + 96px)}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.1;text-wrap:balance}
+button{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+
+/* Kopf */
+.top{display:flex;align-items:center;gap:12px}
+.hsign{flex:none;width:46px;height:46px;border-radius:50%;background:var(--stop);display:grid;place-items:center;font:800 30px/1 var(--display);color:var(--stopgreen);box-shadow:inset 0 0 0 3px var(--stopgreen)}
+.top h1{font-size:28px;font-weight:800;letter-spacing:.01em}
+.top .sub{color:var(--muted);font-size:14px}
+.top .clock{margin-left:auto;font:700 26px/1 var(--display);font-variant-numeric:tabular-nums}
+
+/* Hinweise */
+.alerts{display:grid;gap:8px;margin-top:14px}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:var(--surface);border-left:5px solid var(--warn);font-size:15px}
+.alert.bad{border-left-color:var(--bad)} .alert.rain{border-left-color:var(--rain)} .alert.ok{border-left-color:var(--ok)}
+.alert b{font-weight:600}
+
+section.view{margin-top:18px;display:grid;gap:16px}
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.sechead h2{font-size:24px;font-weight:700}
+.link{background:none;border:0;color:var(--accent);font-weight:600;padding:6px 0;cursor:pointer}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.card{background:var(--surface);border-radius:16px;padding:14px;border:1px solid var(--line)}
+
+/* LED-Anzeiger */
+.board{background:var(--led-bg);border-radius:14px;padding:12px 12px 8px;color:var(--led);font-family:var(--display);box-shadow:inset 0 0 0 2px #2a2f2a,0 2px 0 #000 inset}
+.board .bh{display:flex;justify-content:space-between;align-items:center;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--led-dim);padding:0 2px 8px;border-bottom:1px dashed #3a3424;gap:8px}
+.board .bh button{background:#1f241f;border:1px solid #3a3424;color:var(--led);border-radius:8px;padding:4px 10px;font:600 14px var(--display);letter-spacing:.04em;cursor:pointer}
+.row{display:grid;grid-template-columns:54px 1fr auto;gap:10px;align-items:center;padding:9px 2px;border-bottom:1px solid #222822;font-size:20px}
+.row:last-child{border-bottom:0}
+.row .line{font-weight:800;text-align:center;background:#2a2410;border-radius:6px;padding:2px 0;font-size:18px}
+.row .dest{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.row .when{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.05}
+.row .when small{display:block;font-size:13px;font-weight:500;color:var(--led-dim)}
+.row.cx .dest,.row.cx .when{color:#ff5d4d}
+.row.cx .when b{text-decoration:line-through}
+.tag{display:inline-block;font:700 12px/1 var(--display);letter-spacing:.05em;padding:3px 6px;border-radius:5px;text-transform:uppercase;vertical-align:2px}
+.tag.late{background:#4a3200;color:#ffcc66}.tag.cx{background:#5a1612;color:#ffb3aa}.tag.rt{background:#123a22;color:#7ee2a6}
+.board .empty{padding:18px 4px;color:var(--led-dim);font-size:18px}
+
+/* Ziele */
+.fav{display:grid;gap:10px}
+.fav .fh{display:flex;align-items:center;gap:8px}
+.fav .fh h3{font-size:22px;font-weight:700;min-width:0;flex:1}
+.iconbtn{background:none;border:1px solid var(--line);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.conn{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.conn .t{font:700 22px/1 var(--display);font-variant-numeric:tabular-nums}
+.conn .t small{display:block;font:500 13px var(--body);color:var(--muted);margin-top:3px}
+.legs{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-width:0}
+.badge{font:700 14px/1 var(--display);padding:4px 7px;border-radius:6px;background:var(--accent);color:#fff;letter-spacing:.02em}
+.badge.bus{background:#7a2a8c}.badge.rail{background:#c0392b}.badge.walk{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.status{font:600 14px var(--body);text-align:right}
+.status.ok{color:var(--ok)}.status.late{color:var(--warn)}.status.cx{color:var(--bad)}
+.go{grid-column:1/-1;margin-top:2px;justify-self:start;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer}
+.go.on{background:var(--ok)}
+
+/* Wege */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer}
+.chips button[aria-checked="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.when-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:7px 11px;font-weight:600;font-size:14px;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+input[type=time]{padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+.pills,.wide,.acts{grid-column:1/-1}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:-2px}
+.pill{font:600 12px/1 var(--body);padding:5px 8px;border-radius:999px;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.pill.fast{background:var(--stop);color:#3a2e00;border-color:transparent}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+.go.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:14px}
+.legsList{margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:4px}
+.verdict{background:color-mix(in srgb,var(--stop) 22%,transparent);border-radius:10px;padding:8px 10px;font-weight:600}
+.gapnote{color:var(--muted);border-top:1px dashed var(--line);padding-top:8px}
+.maps{color:var(--accent);font-weight:600;text-decoration:none;justify-self:start}
+
+.alt6193{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.alth{display:flex;align-items:center;gap:8px}
+.altrow{display:grid;gap:2px;padding:6px 10px;background:var(--bg);border-radius:10px}
+.form6193{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form6193 > *{min-width:0}
+.form6193 .wide{grid-column:1/-1}
+.form6193 label{font-size:13px;font-weight:600}
+.check{display:flex!important;gap:8px;align-items:center;font-weight:500!important}
+
+/* Alltag */
+.ch{font-size:20px;margin-bottom:8px}
+.sos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sosbtn{display:grid;gap:2px;padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);text-decoration:none;color:var(--ink);min-width:0}
+.sosbtn b{font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
+.sosbtn span{font-size:13px;color:var(--muted)}
+.sosbtn.red{background:#c62828;border-color:#c62828}.sosbtn.red b,.sosbtn.red span{color:#fff}
+.sosbtn.blue{background:#1f5fbf;border-color:#1f5fbf}.sosbtn.blue b,.sosbtn.blue span{color:#fff}
+.miniform{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;padding:12px;border-radius:12px;background:var(--bg)}
+.miniform>*{min-width:0}.miniform .wide{grid-column:1/-1}
+.miniform label{font-size:13px}
+select,input[type=date],input[type=email],input[type=tel]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+.miniform input[type=text],.miniform input[type=time]{width:100%;background:var(--surface)}
+.clist{display:grid;gap:12px;margin-top:10px}
+.cgh{font:700 15px var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.contact{border-bottom:1px solid var(--line);padding:8px 0}
+.contact summary{display:flex;justify-content:space-between;gap:10px;align-items:baseline;cursor:pointer;list-style:none}
+.contact summary::-webkit-details-marker{display:none}
+.contact .cname{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.contact[open] .acts{margin-top:8px}
+a.go{text-decoration:none;display:inline-block}
+.tlist{display:grid;gap:10px}
+.term{display:grid;grid-template-columns:78px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.term:first-child{border-top:0}
+.term .td{display:grid;align-content:start;gap:2px;font-size:14px}.term .td b{font:700 18px var(--display)}
+.term .tt{font-weight:600}
+.term.past{opacity:.55}
+.dlist{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:4px}
+.dlist li{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.dlist label{display:flex;gap:10px;align-items:center;font-weight:500;margin:0;min-width:0}
+.dlist input{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.dlist li.done span{text-decoration:line-through;color:var(--muted)}
+.iconbtn.sm{width:30px;height:30px;font-size:13px}
+.blist{display:grid;gap:6px}
+.bday{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.bday .bd{font:700 17px var(--display)}
+.bday.today .bd{color:var(--ok)}
+.todaylist{display:grid;gap:6px}
+#cSearch{margin-top:2px}
+
+/* Wetter */
+.wnow{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}
+.wnow .big{font:800 64px/0.9 var(--display);font-variant-numeric:tabular-nums}
+.wnow .cond{font:700 22px var(--display)}
+.rainsay{font:600 18px/1.3 var(--body)}
+.rainbars{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;align-items:end;height:84px;margin-top:10px;padding-bottom:2px;border-bottom:1px solid var(--line)}
+.rainbars i{display:block;background:var(--rain);border-radius:3px 3px 0 0;min-height:2px;opacity:.9}
+.rainbars i.dry{background:var(--line);opacity:1}
+.rainx{display:grid;grid-template-columns:repeat(4,1fr);font-size:12px;color:var(--muted);margin-top:4px}
+.hours{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.hour{flex:none;width:58px;text-align:center;padding:8px 4px;border-radius:12px;background:var(--bg)}
+.hour .e{font-size:22px;line-height:1.3}
+.hour .p{font-size:12px;color:var(--rain);font-weight:600}
+.days{display:grid;gap:4px}
+.day{display:grid;grid-template-columns:70px 30px 1fr auto;gap:8px;align-items:center;padding:6px 0}
+.tip{display:flex;gap:12px;align-items:center}
+.tip .e{font-size:34px}
+
+/* Mehr */
+label{display:block;font-weight:600;margin-bottom:6px}
+input[type=text]{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.results{display:grid;gap:4px;margin-top:6px}
+.results button{text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px;cursor:pointer}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.rowflex{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+code{font-size:14px;background:var(--bg);padding:2px 6px;border-radius:6px;word-break:break-all}
+.joke{font:600 19px/1.35 var(--body)}
+ol{padding-left:20px;margin:6px 0} li{margin:4px 0}
+
+/* Tab-Leiste */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px));padding-bottom:env(safe-area-inset-bottom,0px);z-index:5}
+nav.tabs button{background:none;border:0;padding:9px 0 10px;display:grid;justify-items:center;gap:2px;font:600 13px var(--body);color:var(--muted);cursor:pointer}
+nav.tabs button .i{font-size:22px;line-height:1}
+nav.tabs button[aria-selected="true"]{color:var(--accent)}
+.spin{display:inline-block;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="hsign" aria-hidden="true">H</div>
+    <div>
+      <h1 id="greet">Moin Lion</h1>
+      <div class="sub" id="sub">Lägerdorf</div>
+    </div>
+    <div class="clock" id="clock">--:--</div>
+  </header>
+  <div class="alerts" id="alerts" aria-live="polite"></div>
+
+  <!-- ABFAHRTEN -->
+  <section class="view" id="v-dep">
+    <div class="board">
+      <div class="bh"><span id="boardStop">Lägerdorf Schule</span><button id="nearBtn" type="button">📍 In der Nähe</button></div>
+      <div id="board"><div class="empty">Lade Abfahrten …</div></div>
+    </div>
+    <div class="small muted" id="depInfo"></div>
+  </section>
+
+  <!-- WEGE -->
+  <section class="view" id="v-fav" hidden>
+    <div class="sechead"><h2>Wo bist du?</h2><span class="small muted" id="whereHint"></span></div>
+    <div class="chips" id="origins" role="radiogroup" aria-label="Startort"></div>
+    <div class="when-bar">
+      <div class="seg" role="radiogroup" aria-label="Zeit">
+        <button type="button" data-tm="now" aria-pressed="true">Jetzt</button>
+        <button type="button" data-tm="dep" aria-pressed="false">Los um</button>
+        <button type="button" data-tm="arr" aria-pressed="false">Da sein bis</button>
+      </div>
+      <input type="time" id="tmInput" aria-label="Uhrzeit" hidden>
+    </div>
+    <div id="routeList" style="display:grid;gap:12px"></div>
+    <div class="sechead" style="margin-top:6px"><h2>Eigene Ziele</h2><button class="link" id="addFavBtn" type="button">+ Ziel</button></div>
+    <div class="card" id="addFav" hidden>
+      <label for="favSearch">Ziel suchen</label>
+      <input type="text" id="favSearch" placeholder="z. B. Itzehoe Bahnhof" autocomplete="off">
+      <div class="results" id="favResults"></div>
+    </div>
+    <div id="favList" style="display:grid;gap:12px"></div>
+  </section>
+
+  <!-- ALLTAG -->
+  <section class="view" id="v-life" hidden>
+    <div class="sechead"><h2>Alltag</h2><span class="small muted">Alles bleibt nur auf deinem Handy</span></div>
+
+    <div class="card" id="todayCard" hidden></div>
+
+    <!-- Notfall -->
+    <div class="card">
+      <h3 class="ch">🆘 Notfall</h3>
+      <div class="sos">
+        <a class="sosbtn red" href="tel:112"><b>112</b><span>Feuerwehr &amp; Rettung</span></a>
+        <a class="sosbtn blue" href="tel:110"><b>110</b><span>Polizei</span></a>
+        <a class="sosbtn" href="tel:116117"><b>116 117</b><span>Arzt nachts &amp; am Wochenende</span></a>
+        <a class="sosbtn" href="tel:0551192400"><b>0551 19240</b><span>Giftnotruf Nord</span></a>
+        <a class="sosbtn" href="tel:116116"><b>116 116</b><span>Bankkarte sperren</span></a>
+        <a class="sosbtn" href="tel:116111"><b>116 111</b><span>Nummer gegen Kummer, anonym</span></a>
+      </div>
+    </div>
+
+    <!-- Kontakte -->
+    <div class="card">
+      <div class="sechead"><h3 class="ch">📇 Kontakte</h3><button class="link" id="cAddBtn" type="button">+ Kontakt</button></div>
+      <form id="cForm" class="miniform" hidden>
+        <input type="hidden" id="cId">
+        <div class="wide"><label for="cName">Name</label><input type="text" id="cName" required placeholder="z. B. Dr. Müller (Hausarzt)"></div>
+        <div><label for="cCat">Gruppe</label>
+          <select id="cCat"><option value="arzt">🩺 Arzt</option><option value="familie">👪 Familie</option><option value="freunde">🤙 Freunde</option><option value="schule">🎒 Schule &amp; Nachhilfe</option><option value="arbeit">💼 Arbeit</option><option value="sonst">📌 Sonstiges</option></select></div>
+        <div><label for="cPhone">Telefon</label><input type="tel" id="cPhone" placeholder="04821 …"></div>
+        <div class="wide"><label for="cMail">E-Mail</label><input type="email" id="cMail" placeholder="name@beispiel.de"></div>
+        <div class="wide"><label for="cNote">Notiz</label><input type="text" id="cNote" placeholder="z. B. Sprechzeiten Mo–Fr 8–12, Adresse"></div>
+        <div class="wide rowflex"><button class="btn" type="submit">Speichern</button><button class="btn ghost" type="button" id="cCancel">Abbrechen</button></div>
+      </form>
+      <input type="text" id="cSearch" placeholder="Kontakt suchen" autocomplete="off" aria-label="Kontakt suchen">
+      <div id="cList" class="clist"></div>
+    </div>
+
+    <!-- Termine -->
+    <div class="card">
+      <div class="sechead"><h3 class="ch">📅 Termine</h3><button class="link" id="tAddBtn" type="button">+ Termin</button></div>
+      <form id="tForm" class="miniform" hidden>
+        <input type="hidden" id="tId">
+        <div class="wide"><label for="tTitle">Was?</label><input type="text" id="tTitle" required placeholder="z. B. Zahnarzt, Nachhilfe Mathe"></div>
+        <div><label for="tDate">Datum</label><input type="date" id="tDate" required></div>
+        <div><label for="tTime">Uhrzeit</label><input type="time" id="tTime"></div>
+        <div><label for="tWhere">Wo?</label>
+          <select id="tWhere"><option value="">egal / zuhause</option><option value="nachhilfe">📚 Nachhilfe</option><option value="lulu">💛 Lulu</option><option value="opa">👴 Opa</option><option value="hamburg">🏙️ Hamburg</option><option value="other">📍 woanders …</option></select></div>
+        <div><label for="tRemind">Erinnern</label>
+          <select id="tRemind"><option value="0">nicht</option><option value="30">30 min vorher</option><option value="60" selected>1 h vorher</option><option value="1440">1 Tag vorher</option></select></div>
+        <div class="wide" id="tOtherWrap" hidden><label for="tOther">Adresse</label><input type="text" id="tOther" placeholder="z. B. Hauptstraße 5, Itzehoe"></div>
+        <div class="wide rowflex"><button class="btn" type="submit">Speichern</button><button class="btn ghost" type="button" id="tCancel">Abbrechen</button></div>
+      </form>
+      <div id="tList" class="tlist"></div>
+    </div>
+
+    <!-- To-dos -->
+    <div class="card">
+      <h3 class="ch">✅ To-dos</h3>
+      <form id="dForm" class="rowflex" style="flex-wrap:nowrap">
+        <input type="text" id="dText" placeholder="z. B. Bewerbungsfoto machen" aria-label="Neues To-do" style="flex:1;min-width:0">
+        <button class="btn" type="submit" aria-label="To-do hinzufügen">+</button>
+      </form>
+      <ul id="dList" class="dlist"></ul>
+      <button class="link small" id="dClear" type="button" hidden>Erledigte löschen</button>
+    </div>
+
+    <!-- Geburtstage -->
+    <div class="card">
+      <div class="sechead"><h3 class="ch">🎂 Geburtstage</h3><button class="link" id="bAddBtn" type="button">+ Geburtstag</button></div>
+      <form id="bForm" class="miniform" hidden>
+        <div class="wide"><label for="bName">Wer?</label><input type="text" id="bName" required placeholder="Name"></div>
+        <div><label for="bDate">Tag</label><input type="date" id="bDate" required></div>
+        <div class="rowflex" style="align-items:end"><button class="btn" type="submit">Speichern</button><button class="btn ghost" type="button" id="bCancel">Abbrechen</button></div>
+      </form>
+      <div id="bList" class="blist"></div>
+    </div>
+
+    <!-- Backup -->
+    <div class="card">
+      <h3 class="ch">💾 Sichern</h3>
+      <p class="small muted" style="margin:0 0 10px">Kontakte, Termine und Co. liegen nur in diesem Browser. Sicher sie ab und zu, z. B. vor einem Handywechsel.</p>
+      <div class="rowflex">
+        <button class="btn" id="exportBtn" type="button">Backup speichern</button>
+        <label class="btn ghost" for="importFile" style="margin:0">Backup laden</label>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+      <div class="small" id="backupMsg" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- WETTER -->
+  <section class="view" id="v-wx" hidden>
+    <div class="card wnow">
+      <div class="big num" id="wTemp">–°</div>
+      <div><div class="cond" id="wCond">…</div><div class="muted small" id="wFeel"></div></div>
+    </div>
+    <div class="card">
+      <div class="rainsay" id="rainSay">Regen-Check läuft …</div>
+      <div class="rainbars" id="rainBars" aria-hidden="true"></div>
+      <div class="rainx num" id="rainX"></div>
+    </div>
+    <div class="card tip" id="tip"></div>
+    <div class="card"><h3 style="font-size:20px;margin-bottom:8px">Nächste Stunden</h3><div class="hours" id="hours"></div></div>
+    <div class="card"><h3 style="font-size:20px;margin-bottom:4px">Die nächsten Tage</h3><div class="days" id="days"></div></div>
+  </section>
+
+  <!-- MEHR -->
+  <section class="view" id="v-more" hidden>
+    <div class="card">
+      <h3 style="font-size:20px;margin-bottom:8px">Spruch des Tages</h3>
+      <div class="joke" id="joke"></div>
+      <button class="link" id="jokeBtn" type="button">Noch einen</button>
+    </div>
+    <div class="card">
+      <label for="homeSearch">Deine Haltestelle</label>
+      <div class="muted small" style="margin-bottom:6px">Aktuell: <b id="homeName"></b></div>
+      <input type="text" id="homeSearch" placeholder="Haltestelle suchen" autocomplete="off">
+      <div class="results" id="homeResults"></div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:20px;margin-bottom:6px">Linie 6193 (Schloss Breitenburg ↔ Kellinghusen)</h3>
+      <p class="small muted" style="margin:0 0 10px">Die 6193 fehlt in den offenen Fahrplandaten, deshalb stehen hier die Zeiten vom hvv-Haltestellenaushang (gültig bis 12.12.2026, Mo–Fr). Nach dem Fahrplanwechsel einfach anpassen. Zeiten mit Komma trennen, „+29“ heißt: diese Fahrt braucht 29 statt der normalen Minuten.</p>
+      <div class="form6193">
+        <div class="wide"><label for="b6193_hin">Abfahrt Schloss Breitenburg Ri. Kellinghusen</label><input type="text" id="b6193_hin" inputmode="numeric" placeholder="z. B. 7:12, 13:12, 15:12"></div>
+        <div class="wide"><label for="b6193_hinDauer">Fahrzeit bis Marienstraße (min)</label><input type="text" id="b6193_hinDauer" inputmode="numeric" placeholder="z. B. 15"></div>
+        <div class="wide"><label for="b6193_rueck">Abfahrt Marienstraße Ri. Itzehoe</label><input type="text" id="b6193_rueck" inputmode="numeric" placeholder="z. B. 14:05, 17:05"></div>
+        <div class="wide"><label for="b6193_rueckDauer">Fahrzeit bis Schloss (min)</label><input type="text" id="b6193_rueckDauer" inputmode="numeric" placeholder="z. B. 15"></div>
+        <div><label for="b6193_rad">🚲 Zuhause ↔ Schloss (min)</label><input type="text" id="b6193_rad" inputmode="numeric"></div>
+        <div><label for="b6193_fuss">🚶 Zuhause ↔ Schloss (min)</label><input type="text" id="b6193_fuss" inputmode="numeric"></div>
+        <label class="wide check"><input type="checkbox" id="b6193_nurWerktags"> fährt nur Mo–Fr</label>
+      </div>
+      <div class="small" id="b6193Saved" aria-live="polite"></div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:20px;margin-bottom:6px">Benachrichtigungen</h3>
+      <p class="small muted" style="margin:0 0 10px">Solange die App offen ist, meldet sie Ausfälle bei deinen Zielen und Regen in der nächsten halben Stunde.</p>
+      <div class="rowflex"><button class="btn" id="notifBtn" type="button">Benachrichtigungen erlauben</button><span class="small" id="notifState"></span></div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:20px;margin-bottom:6px">Push auch bei geschlossener App</h3>
+      <p class="small muted" style="margin:0 0 8px">Dafür läuft der Wachhund auf GitHub und funkt dir über die kostenlose App <b>ntfy</b>. Dein geheimer Kanal:</p>
+      <div class="rowflex"><code id="topic"></code><button class="link" id="copyTopic" type="button">Kopieren</button></div>
+      <p class="small muted" style="margin:8px 0 0">Wie du ihn einrichtest, steht in der Anleitung (LIESMICH.md).</p>
+    </div>
+    <div class="card small muted">
+      Bus-Daten: Transitous (offene Fahrplandaten, Echtzeit wo vorhanden). Wetter: Open-Meteo. Angaben ohne Gewähr, im Zweifel lieber 2 Minuten früher an der Haltestelle stehen.
+      <div class="rowflex" style="margin-top:8px"><button class="link" id="themeBtn" type="button">Hell/Dunkel wechseln</button></div>
+    </div>
+  </section>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-v="dep"><span class="i">🚌</span>Abfahrten</button>
+  <button role="tab" aria-selected="false" data-v="fav"><span class="i">🧭</span>Wege</button>
+  <button role="tab" aria-selected="false" data-v="life"><span class="i">📒</span>Alltag</button>
+  <button role="tab" aria-selected="false" data-v="wx"><span class="i">☔</span>Wetter</button>
+  <button role="tab" aria-selected="false" data-v="more"><span class="i">☰</span>Mehr</button>
+</nav>
+
+<script>
+"use strict";
+const API = "https://api.transitous.org/api";
+const WX = "https://api.open-meteo.com/v1/forecast";
+const TZ = "Europe/Berlin";
+
+/* ---------- Speicher ---------- */
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("moinbus:"+k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("moinbus:"+k, JSON.stringify(v)); }catch(e){} }
+};
+const DEFAULT_HOME = { id:"de-DELFI_000010097603", name:"Lägerdorf Schule", lat:53.888363, lon:9.570723 };
+const DEFAULT_FAVS = [];
+let home = store.get("home", DEFAULT_HOME);
+let favs = store.get("favs", DEFAULT_FAVS);
+let boardStop = home;
+let topic = store.get("topic", null);
+if(!topic){ topic = "moinbus-" + Math.random().toString(36).slice(2,8) + Math.random().toString(36).slice(2,8); store.set("topic", topic); }
+const notified = new Set(store.get("notified", []));
+
+/* ---------- Helfer ---------- */
+const $ = id => document.getElementById(id);
+const fmtTime = iso => new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+const minsUntil = iso => Math.round((new Date(iso) - Date.now())/60000);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const delayMin = (act, sch) => (act && sch) ? Math.round((new Date(act)-new Date(sch))/60000) : 0;
+async function getJSON(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.json();
+}
+function relWhen(iso){
+  const m = minsUntil(iso);
+  if(m <= 0) return "jetzt";
+  if(m < 60) return "in " + m + " min";
+  return fmtTime(iso);
+}
+function badgeClass(mode){
+  if(mode==="BUS"||mode==="COACH") return "bus";
+  if(mode==="WALK") return "walk";
+  if(/RAIL|TRAIN|SUBWAY|TRAM|REGIONAL|HIGHSPEED|LONG_DISTANCE|SUBURBAN/.test(mode||"")) return "rail";
+  return "";
+}
+function alertsOf(o){ return (o && Array.isArray(o.alerts)) ? o.alerts : []; }
+function alertText(a){ return a.headerText || a.descriptionText || a.header || a.description || ""; }
+
+/* ---------- Uhr & Begrüßung ---------- */
+function tickClock(){
+  const now = new Date();
+  $("clock").textContent = now.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+  const h = parseInt(new Intl.DateTimeFormat("en-GB",{hour:"2-digit",hourCycle:"h23",timeZone:TZ}).format(now),10);
+  $("greet").textContent = h < 11 ? "Moin Lion" : h < 18 ? "Moin moin Lion" : h < 23 ? "N'Abend Lion" : "Ab ins Bett, Lion";
+}
+
+/* ---------- Hinweise oben ---------- */
+const alertBuckets = { dep:[], fav:[], wx:[], life:[] };
+function renderAlerts(){
+  const all = [...alertBuckets.life, ...alertBuckets.wx, ...alertBuckets.fav, ...alertBuckets.dep];
+  $("alerts").innerHTML = all.slice(0,4).map(a => `<div class="alert ${a.kind}"><span>${a.icon}</span><span>${a.html}</span></div>`).join("");
+}
+function notify(key, title, body){
+  if(notified.has(key)) return;
+  notified.add(key); store.set("notified", [...notified].slice(-200));
+  try{
+    if("Notification" in window && Notification.permission === "granted"){
+      if(navigator.serviceWorker && navigator.serviceWorker.controller){
+        navigator.serviceWorker.ready.then(r => r.showNotification(title,{body, icon:"icon-192.png", tag:key}));
+      } else new Notification(title,{body, icon:"icon-192.png", tag:key});
+    }
+  }catch(e){}
+}
+
+/* ---------- Abfahrten ---------- */
+async function loadBoard(){
+  $("boardStop").textContent = boardStop.name;
+  try{
+    const j = await getJSON(`${API}/v5/stoptimes?stopId=${encodeURIComponent(boardStop.id)}&n=14`);
+    const list = (j.stopTimes||[]).filter(s => s.place && (s.place.departure||s.place.scheduledDeparture) && minsUntil(s.place.departure||s.place.scheduledDeparture) >= -1);
+    alertBuckets.dep = [];
+    if(!list.length){ $("board").innerHTML = `<div class="empty">Heute fährt hier nix mehr. Fahrrad oder Mama-Taxi.</div>`; }
+    else $("board").innerHTML = list.map(s => {
+      const p = s.place, act = p.departure || p.scheduledDeparture, sch = p.scheduledDeparture || act;
+      const cx = s.cancelled || s.tripCancelled || p.cancelled;
+      const d = delayMin(act, sch);
+      const al = [...alertsOf(s), ...alertsOf(p)];
+      al.forEach(a => alertText(a) && alertBuckets.dep.push({kind:"",icon:"⚠️",html:esc(alertText(a))}));
+      const tag = cx ? `<span class="tag cx">fällt aus</span>` : d >= 2 ? `<span class="tag late">+${d}</span>` : s.realTime ? `<span class="tag rt">live</span>` : "";
+      return `<div class="row ${cx?"cx":""}">
+        <div class="line">${esc(s.routeShortName || s.displayName || "?")}</div>
+        <div class="dest">${esc(s.headsign || s.tripTo?.name || "")} ${tag}</div>
+        <div class="when"><b>${cx ? fmtTime(sch) : relWhen(act)}</b><small>${fmtTime(sch)}${d>=2&&!cx ? " → "+fmtTime(act):""}</small></div>
+      </div>`;
+    }).join("");
+    $("depInfo").textContent = "Stand " + fmtTime(new Date().toISOString()) + " · „live“ = Echtzeit, sonst Fahrplan";
+  }catch(e){
+    $("board").innerHTML = `<div class="empty">Kein Netz zum Fahrplan. Check dein Internet und tipp nochmal auf die Tafel.</div>`;
+  }
+  renderAlerts();
+}
+$("board").addEventListener("click", loadBoard);
+$("nearBtn").addEventListener("click", () => {
+  if(boardStop.id !== home.id){ boardStop = home; $("nearBtn").textContent = "📍 In der Nähe"; loadBoard(); return; }
+  if(!navigator.geolocation){ return; }
+  $("nearBtn").textContent = "Suche …";
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try{
+      const {latitude:la, longitude:lo} = pos.coords;
+      const r = await getJSON(`${API}/v1/reverse-geocode?place=${la},${lo}&type=STOP`);
+      const s = (r||[]).find(x => x.type === "STOP") || r[0];
+      if(s){ boardStop = {id:s.id, name:s.name, lat:s.lat, lon:s.lon}; $("nearBtn").textContent = "🏠 Zuhause"; loadBoard(); }
+      else $("nearBtn").textContent = "📍 In der Nähe";
+    }catch(e){ $("nearBtn").textContent = "📍 In der Nähe"; }
+  }, () => { $("nearBtn").textContent = "📍 Kein GPS"; }, {timeout:10000, maximumAge:60000});
+});
+
+/* ---------- Wege: Zuhause, Lulu, Nachhilfe, Hamburg ---------- */
+// Feste Orte. Koordinaten statt Haltestellen-IDs, damit nix kaputtgeht, wenn sich IDs ändern.
+const WRIST = { place:"53.9311,9.7468", label:"ab Bahnhof Wrist", note:"Bis Wrist musst du selbst kommen (Bus 619x oder Taxi Mama)." };
+const PLACES = {
+  home:      { key:"home", name:"Zuhause", emoji:"🏠", to:"Nach Hause" },
+  lulu:      { key:"lulu", name:"Lulu", emoji:"💛", to:"Zu Lulu", lat:53.9451, lon:9.7286, gap:true,
+               stops:[{ place:"53.9451,9.7286", label:"Marienstraße, Kellinghusen" }] },
+  nachhilfe: { key:"nachhilfe", name:"Nachhilfe", emoji:"📚", to:"Zur Nachhilfe", lat:53.9046, lon:9.4798,
+               stops:[{ place:"53.9044,9.4813", label:"Krichauffstraße" }, { place:"53.9048,9.4782", label:"Mühlenweg" }] },
+  opa:       { key:"opa", name:"Opa", emoji:"👴", to:"Zu Opa", lat:53.9894, lon:9.5280,
+               stops:[{ place:"53.9894,9.5280", label:"Schulstraße, Hohenaspe" }] },
+  hamburg:   { key:"hamburg", name:"Hamburg", emoji:"🏙️", to:"Nach Hamburg", lat:53.5524, lon:10.0075, destOnly:true,
+               stops:[{ place:"53.5524,10.0075", label:"Hamburg Hbf" }] }
+};
+function placeOf(key){
+  if(key === "home") return { ...PLACES.home, lat:home.lat, lon:home.lon, stops:[{ place:home.id, label:home.name }] };
+  if(key === "here") return here ? { key:"here", name:"Hier", emoji:"📍", lat:here.lat, lon:here.lon, stops:[{ place:`${here.lat.toFixed(5)},${here.lon.toFixed(5)}`, label:"deinem Standort" }] } : null;
+  return PLACES[key];
+}
+// Von wo darf ich starten? Bei Lulu zusätzlich ab Wrist, falls das schneller ist.
+function fromVariants(o){
+  const v = o.stops.map(s => ({ ...s, label:"ab " + s.label }));
+  if(o.key === "lulu") v.push(WRIST);
+  return v;
+}
+let origin = store.get("origin", "home");
+let here = null;
+let timeMode = "now", timeValue = null, timeDate = null;
+
+const distKm = (a,b,c,d) => { const R=6371, x=(c-a)*Math.PI/180, y=(d-b)*Math.PI/180, s=Math.sin(x/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(y/2)**2; return 2*R*Math.asin(Math.sqrt(s)); };
+function renderOrigins(){
+  const keys = ["home","lulu","nachhilfe","opa","here"];
+  $("origins").innerHTML = keys.map(k => {
+    const p = k === "here" ? { emoji:"📍", name:"Hier" } : placeOf(k);
+    return `<button type="button" role="radio" aria-checked="${origin===k}" data-o="${k}">${p.emoji} ${p.name}</button>`;
+  }).join("");
+}
+$("origins").addEventListener("click", e => {
+  const b = e.target.closest("[data-o]"); if(!b) return;
+  const k = b.dataset.o;
+  if(k === "here"){ locate(true); return; }
+  origin = k; store.set("origin", k); $("whereHint").textContent = ""; renderOrigins(); loadFavs();
+});
+// GPS: nächsten bekannten Ort finden (innerhalb 1,5 km), sonst "Hier"
+function locate(force){
+  if(!navigator.geolocation) return;
+  $("whereHint").textContent = "Suche dich …";
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude:la, longitude:lo } = pos.coords;
+    here = { lat:la, lon:lo };
+    const cands = ["home","lulu","nachhilfe","opa"].map(k => ({ k, d: distKm(la, lo, placeOf(k).lat ?? 0, placeOf(k).lon ?? 0) })).sort((a,b) => a.d-b.d);
+    origin = (!force && cands[0].d < 1.5) ? cands[0].k : (cands[0].d < 1.5 ? cands[0].k : "here");
+    $("whereHint").textContent = origin === "here" ? "Unterwegs erkannt" : `Erkannt: ${placeOf(origin).emoji} ${placeOf(origin).name}`;
+    store.set("origin", origin === "here" ? store.get("origin","home") : origin);
+    renderOrigins(); loadFavs();
+  }, () => { $("whereHint").textContent = "Kein GPS, wähl selbst"; }, { timeout:10000, maximumAge:120000 });
+}
+// Beim Start automatisch, aber nur wenn Standort schon erlaubt ist (kein nerviges Pop-up)
+try{ navigator.permissions && navigator.permissions.query({ name:"geolocation" }).then(p => { if(p.state === "granted") locate(false); }).catch(()=>{}); }catch(e){}
+
+// Zeitwahl
+document.querySelector(".seg").addEventListener("click", e => {
+  const b = e.target.closest("[data-tm]"); if(!b) return;
+  timeMode = b.dataset.tm; timeDate = null;
+  document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  $("tmInput").hidden = timeMode === "now";
+  if(timeMode !== "now" && !$("tmInput").value){
+    const d = new Date(Date.now() + 60*60000);
+    $("tmInput").value = d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+  }
+  loadFavs();
+});
+$("tmInput").addEventListener("change", loadFavs);
+function timeParams(){
+  if(timeMode === "now" || !$("tmInput").value) return "";
+  const [hh, mm] = $("tmInput").value.split(":");
+  const today = timeDate || new Date().toLocaleDateString("sv-SE",{timeZone:TZ});
+  let t = berlinToDate(`${today}T${hh}:${mm}`);
+  if(!timeDate && t < Date.now() - 30*60000) t = new Date(t.getTime() + 86400000); // schon vorbei → morgen
+  return `&time=${t.toISOString()}` + (timeMode === "arr" ? "&arriveBy=true" : "");
+}
+
+async function plan(from, to, extra = ""){
+  const j = await getJSON(`${API}/v5/plan?fromPlace=${encodeURIComponent(from)}&toPlace=${encodeURIComponent(to)}&numItineraries=5${extra}`);
+  if(j.error) throw new Error(j.reason || "Fehler");
+  return j.itineraries || [];
+}
+// Alle Kombis abfragen, zusammenwerfen, nach Ankunft sortieren
+async function bestTrips(fromList, toList, extra){
+  const jobs = [];
+  for(const f of fromList) for(const t of toList)
+    jobs.push(plan(f.place, t.place, extra).then(its => its.map(it => ({ ...it, fromLabel:f.label, toLabel:t.label, note:f.note }))).catch(() => null));
+  const res = await Promise.all(jobs);
+  if(res.every(r => r === null)) return null;
+  const seen = new Set();
+  let all = res.filter(Boolean).flat().filter(it => {
+    const k = it.startTime + "|" + it.endTime + "|" + it.fromLabel;
+    if(seen.has(k)) return false; seen.add(k); return true;
+  });
+  if(timeMode === "now") all = all.filter(it => minsUntil(it.startTime) >= -1);
+  if(timeMode === "arr"){
+    const lim = new Date(decodeURIComponent((extra.match(/time=([^&]+)/)||[])[1] || ""));
+    all = all.filter(it => new Date(it.endTime) <= lim).sort((a,b) => new Date(b.startTime) - new Date(a.startTime)); // spätmöglichst los
+    return all.slice(0,3).reverse();
+  }
+  return all.sort((a,b) => new Date(a.endTime) - new Date(b.endTime));
+}
+// Welcher Weg ist das? (für Hamburg: über Elmshorn oder Itzehoe)
+function viaOf(it){
+  const ride = it.legs.filter(l => l.mode !== "WALK");
+  if(ride.length < 2) return "";
+  const hubs = ["Elmshorn","Itzehoe","Wrist","Pinneberg","Neumünster","Bad Bramstedt"];
+  const hub = hubs.find(h => (ride[0].to?.name || "").includes(h));
+  return hub ? "über " + hub : "";
+}
+function mapsLink(o, d){
+  const a = `${o.lat},${o.lon}`, b = `${d.lat},${d.lon}`;
+  return `https://www.google.com/maps/dir/?api=1&origin=${a}&destination=${b}&travelmode=transit`;
+}
+
+const routeCache = {};
+async function loadFavs(){
+  const o = placeOf(origin) || placeOf("home");
+  const dests = ["home","lulu","nachhilfe","opa","hamburg"].filter(k => k !== o.key).map(placeOf);
+  const extra = timeParams();
+  dests.forEach(d => { routeCache[d.key] = routeCache[d.key] || undefined; });
+  renderRoutes(o, dests);
+  await Promise.all(dests.map(async d => {
+    let trips = await bestTrips(fromVariants(o), d.stops, extra);
+    // Kellinghusen-Daten sind lückenhaft: absurde Ergebnisse wegwerfen
+    if(trips && (o.gap || d.gap)) trips = trips.filter(it => it.duration < 3*3600 && (timeMode !== "now" || minsUntil(it.startTime) < 6*60));
+    routeCache[d.key] = trips ? trips.slice(0,3) : null;
+    // Letzte Verbindung nach Hause heute
+    if(d.key === "home" && timeMode === "now"){
+      const today = new Date().toLocaleDateString("sv-SE",{timeZone:TZ});
+      const end = berlinToDate(`${today}T23:59`);
+      const last = await bestTrips(fromVariants(o), d.stops, `&time=${end.toISOString()}&arriveBy=true`).catch(()=>null);
+      const ok = (last || []).filter(it => new Date(it.endTime) <= end && minsUntil(it.startTime) > -1 && it.duration < 3*3600);
+      routeCache.lastHome = ok.length ? ok.reduce((a,b) => new Date(a.startTime) > new Date(b.startTime) ? a : b) : null;
+    }
+    renderRoutes(o, dests);
+  }));
+  // eigene Ziele (von hier aus)
+  await Promise.all(favs.map(async f => {
+    const t = await bestTrips(fromVariants(o), [{ place:f.id, label:f.name }], extra);
+    favCache[f.id] = t ? t.slice(0,3) : null;
+  }));
+  renderFavsFromCache();
+}
+const favCache = {};
+
+function itinStatus(it){
+  const ride = it.legs.filter(l => l.mode !== "WALK");
+  const cx = ride.some(l => l.cancelled);
+  const d = Math.max(0, ...ride.map(l => delayMin(l.startTime, l.scheduledStartTime)));
+  const al = ride.flatMap(l => alertsOf(l));
+  return {cx, d, al};
+}
+function connHTML(it, n, destName, opts = {}){
+  const st = itinStatus(it);
+  const first = it.legs.find(l => l.mode !== "WALK") || it.legs[0];
+  const key = destName + "|" + it.startTime;
+  if(timeMode === "now"){
+    if(st.cx && minsUntil(it.startTime) < 120){
+      alertBuckets.fav.push({kind:"bad",icon:"🚫",html:`${esc(destName)}: Fahrt um ${fmtTime(first.scheduledStartTime||it.startTime)} fällt aus.`});
+      notify("cx:"+key, "Bus fällt aus 🚫", `${first.routeShortName||""} um ${fmtTime(first.scheduledStartTime||it.startTime)} (${destName}) fällt aus.`);
+    } else if(st.d >= 5 && minsUntil(it.startTime) < 60){
+      alertBuckets.fav.push({kind:"",icon:"🐢",html:`${esc(destName)}: ${esc(first.routeShortName)} hat +${st.d} min.`});
+    }
+    st.al.forEach(a => alertText(a) && alertBuckets.fav.push({kind:"",icon:"⚠️",html:esc(alertText(a))}));
+  }
+  const legs = it.legs.map(l => l.mode==="WALK" ? (l.duration>120 ? `<span class="badge walk">🚶 ${Math.round(l.duration/60)}′</span>` : "") : `<span class="badge ${badgeClass(l.mode)}">${esc(l.routeShortName||l.displayName||l.mode)}</span>`).join("");
+  const stTxt = st.cx ? `<span class="status cx">fällt aus</span>` : st.d>=2 ? `<span class="status late">+${st.d} min</span>` : `<span class="status ok">${first.realTime ? "pünktlich" : "nach Plan"}</span>`;
+  const via = viaOf(it);
+  const tags = [
+    opts.best === it && timeMode !== "arr" ? `<span class="pill fast">⚡ am frühesten da</span>` : "",
+    opts.best === it && timeMode === "arr" ? `<span class="pill fast">😴 spätestmöglich los</span>` : "",
+    via ? `<span class="pill">${esc(via)}</span>` : "",
+    opts.showFrom && it.fromLabel ? `<span class="pill">${esc(it.fromLabel)}</span>` : "",
+    opts.showTo && it.toLabel ? `<span class="pill">bis ${esc(it.toLabel)}</span>` : ""
+  ].join("");
+  const on = !!alarms[key];
+  const details = it.legs.filter(l => l.mode !== "WALK" || l.duration > 120).map(l => l.mode === "WALK"
+    ? `<li class="muted">🚶 ${Math.round(l.duration/60)} min zu Fuß${l.to?.name && l.to.name !== "END" ? " bis " + esc(l.to.name) : ""}</li>`
+    : `<li><b class="num">${fmtTime(l.startTime)}</b> ${esc(l.from?.name)} → <b class="num">${fmtTime(l.endTime)}</b> ${esc(l.to?.name)} <span class="muted">(${esc(l.routeShortName||l.mode)}${l.headsign ? " Ri. "+esc(l.headsign) : ""}${(l.intermediateStops||[]).length ? ", "+l.intermediateStops.length+" Halte" : ""})</span></li>`).join("");
+  return `<div class="conn">
+    <div class="t num">${fmtTime(it.startTime)}<small>${timeMode==="now" ? relWhen(it.startTime) : "los"}</small></div>
+    <div class="legs">${legs}<span class="small muted">→ <b class="num">${fmtTime(it.endTime)}</b> · ${Math.round(it.duration/60)} min${it.transfers?` · ${it.transfers}× umst.`:""}</span></div>
+    ${stTxt}
+    ${tags ? `<div class="pills">${tags}</div>` : ""}
+    ${it.note ? `<div class="small muted wide">${esc(it.note)}</div>` : ""}
+    <details class="wide"><summary>Details</summary><ul class="legsList">${details}</ul></details>
+    <div class="acts wide">
+      ${timeMode==="now" && n===0 && !st.cx && minsUntil(it.startTime) > 6 ? `<button class="go ${on?"on":""}" data-key="${esc(key)}" data-at="${it.startTime}" data-name="${esc(destName)}" type="button">${on ? "⏰ Wecker an" : "⏰ 5 min vorher erinnern"}</button>` : ""}
+      ${n===0 && !st.cx ? `<button class="go ghost" data-share="${esc(`Bin um ${fmtTime(it.endTime)} ${destName === "Nach Hause" ? "zuhause" : "da (" + (it.toLabel||destName) + ")"} 🚌 Abfahrt ${fmtTime(it.startTime)} mit ${it.legs.filter(l=>l.mode!=="WALK").map(l=>l.routeShortName).join(" → ")}`)}" type="button">📤 Ankunft teilen</button>` : ""}
+    </div>
+  </div>`;
+}
+function renderRoutes(o, dests){
+  alertBuckets.fav = [];
+  $("routeList").innerHTML = dests.map(d => {
+    const trips = routeCache[d.key];
+    const gap = o.gap || d.gap;
+    let body;
+    if(trips === undefined) body = `<div class="muted small">Rechne Wege aus …</div>`;
+    else if(trips === null) body = `<div class="muted small">Gerade keine Verbindung abrufbar.</div>`;
+    else if(!trips.length) body = `<div class="muted small">${gap ? "Keine Verbindung in den offenen Daten gefunden, weil dort Kellinghusen-Busse fehlen." : timeMode==="arr" ? "Zu der Zeit schaffst du's nicht mehr. Früher los!" : "Heute nix mehr. Morgen wieder."}</div>`;
+    else body = trips.map((it,n) => connHTML(it, n, d.to, { best: trips.length > 1 ? (timeMode === "arr" ? [...trips].reverse() : trips).find(t => !itinStatus(t).cx) : null, showFrom: o.key === "lulu" || o.key === "nachhilfe", showTo: (d.stops||[]).length > 1 })).join("");
+    // Vergleich Elmshorn vs. Itzehoe nach Hamburg
+    let verdict = "";
+    if(d.key === "hamburg" && trips && trips.length){
+      const e = trips.find(t => viaOf(t) === "über Elmshorn"), i = trips.find(t => viaOf(t) === "über Itzehoe");
+      if(e && i){
+        const diff = Math.round((new Date(i.endTime) - new Date(e.endTime))/60000);
+        verdict = diff > 0 ? `Über Elmshorn bist du ${diff} min früher am Hbf.` : diff < 0 ? `Über Itzehoe bist du diesmal ${-diff} min früher da.` : "Elmshorn oder Itzehoe, kommt aufs Gleiche raus.";
+      }
+      const w = trips.find(t => t.fromLabel === WRIST.label);
+      if(w && trips[0] === w) verdict = "Ab Bahnhof Wrist geht's am schnellsten, mit dem RE70 direkt zum Hbf.";
+    }
+    const lastHome = d.key === "home" && routeCache.lastHome ? `<div class="small"><b>🌙 Letzte Verbindung heute:</b> ${fmtTime(routeCache.lastHome.startTime)} ${esc(routeCache.lastHome.fromLabel||"")}</div>` : "";
+    const oPlace = o.lat ? o : placeOf("home");
+    return `<div class="card fav" data-route="${d.key}">
+      <div class="fh"><h3>${d.emoji} ${esc(d.to)}</h3>${d.stops && d.stops.length > 1 ? `<span class="small muted">${d.stops.map(s=>esc(s.label)).join(" / ")}</span>` : ""}</div>
+      ${verdict ? `<div class="verdict">${verdict}</div>` : ""}
+      ${lastHome}
+      ${body}
+      ${(o.key === "home" && d.key === "lulu") || (o.key === "lulu" && d.key === "home") ? bus6193HTML(o.key === "home" ? "hin" : "rueck") : ""}
+      ${gap ? `<div class="gapnote small">ℹ️ Die Busse Kellinghusen ↔ Itzehoe/Wrist fehlen teilweise in den offenen Fahrplandaten.</div>` : ""}
+      <a class="maps small" href="${mapsLink(oPlace, d.key==="home" ? placeOf("home") : d)}" target="_blank" rel="noopener">In Google Maps gegenchecken ↗</a>
+    </div>`;
+  }).join("");
+  renderAlerts();
+}
+
+/* ---------- 6193 über Schloss Breitenburg (selbst eingetragene Zeiten) ---------- */
+const SCHLOSS = { lat:53.9060, lon:9.5716, name:"Breitenburg Am Schloss" };
+// Zeiten laut hvv-Haltestellenaushang, gültig 04.11.–12.12.2026 (Mo–Fr). "+29" = Fahrt über Gemeinschaftsschule, dauert länger.
+const B6193_GUELTIG_BIS = "2026-12-12";
+const B6193_DEFAULT = {
+  hin:"5:45, 7:15+29, 9:25, 11:55, 12:50, 13:40, 14:25, 15:40, 16:25, 18:25", hinDauer:"19",
+  rueck:"6:28, 8:10, 10:10, 12:27+29, 13:23+29, 14:10, 16:10, 17:10, 19:10", rueckDauer:"20",
+  rad:10, fuss:30, nurWerktags:true };
+let b6193 = { ...B6193_DEFAULT };
+{ const saved = store.get("b6193", {}); for(const k in saved) if(saved[k] !== "" && saved[k] != null) b6193[k] = saved[k]; }
+// "7:15+29" -> {t:"7:15", dauer:29}
+const parseTimes = s => (s||"").split(/[^0-9:.+]+/).map(x => x.replace(".",":")).map(x => { const m = x.match(/^(\d{1,2}:\d{2})(?:\+(\d{1,3}))?$/); return m ? { t:m[1], dauer: m[2] ? +m[2] : null } : null; }).filter(Boolean).sort((a,b) => a.t.padStart(5,"0").localeCompare(b.t.padStart(5,"0")));
+function refTime(){
+  if(timeMode === "now" || !$("tmInput").value) return new Date();
+  const p = new URLSearchParams(timeParams().slice(1)); return new Date(p.get("time"));
+}
+function next6193(list, from, n){
+  const out = [];
+  for(let day = 0; day < 4 && out.length < n; day++){
+    const base = new Date(from.getTime() + day*86400000);
+    const ymd = base.toLocaleDateString("sv-SE",{timeZone:TZ});
+    const wd = new Date(ymd+"T12:00:00Z").getUTCDay();
+    if(b6193.nurWerktags && (wd === 0 || wd === 6)) continue;
+    for(const x of list){ const d = berlinToDate(`${ymd}T${x.t.padStart(5,"0")}`); if(d >= from && out.length < n) out.push({ d, dauer:x.dauer }); }
+  }
+  return out;
+}
+const addMin = (d, m) => new Date(d.getTime() + m*60000);
+function bus6193HTML(dir){
+  const list = parseTimes(dir === "hin" ? b6193.hin : b6193.rueck);
+  const dauer = +(dir === "hin" ? b6193.hinDauer : b6193.rueckDauer) || 0;
+  const rad = +b6193.rad || 10, fuss = +b6193.fuss || 30;
+  const maps = dir === "hin" ? mapsLink(SCHLOSS, PLACES.lulu) : mapsLink(PLACES.lulu, SCHLOSS);
+  let inner;
+  if(!list.length){
+    inner = `<div class="small">Die 6193 ist nicht in den offenen Daten. Trag ihre Zeiten einmal unter <b>Mehr → Linie 6193</b> ein, dann rechnet die App, wann du mit 🚲 oder 🚶 los musst.</div>`;
+  } else if(timeMode === "arr"){
+    const lim = refTime();
+    const all = next6193(list, new Date(lim.getTime() - 6*3600000), 30).filter(x => addMin(x.d, (x.dauer ?? dauer) + (dir === "rueck" ? fuss : 0)) <= lim);
+    const dep = all[all.length - 1];
+    inner = dep ? b6193Row(dep.d, dir, dep.dauer ?? dauer, rad, fuss) : `<div class="small muted">Mit der 6193 schaffst du's bis dahin nicht.</div>`;
+  } else {
+    const from = dir === "hin" ? addMin(refTime(), rad - 2) : refTime();
+    inner = next6193(list, from, 2).map(x => b6193Row(x.d, dir, x.dauer ?? dauer, rad, fuss)).join("") || `<div class="small muted">Keine 6193 mehr in den nächsten Tagen eingetragen.</div>`;
+  }
+  const old = new Date().toLocaleDateString("sv-SE",{timeZone:TZ}) > B6193_GUELTIG_BIS && (dir === "hin" ? b6193.hin : b6193.rueck) === B6193_DEFAULT[dir];
+  return `<div class="alt6193">
+    <div class="alth"><span class="badge bus">6193</span> <b>über Schloss Breitenburg</b></div>
+    ${old ? `<div class="small" style="color:var(--warn)">⚠️ Fahrplanwechsel war am 13.12. Check die 6193-Zeiten unter Mehr.</div>` : ""}
+    ${inner}
+    <a class="maps small" href="${maps}" target="_blank" rel="noopener">6193-Zeiten in Google Maps checken ↗</a>
+  </div>`;
+}
+function b6193Row(dep, dir, dauer, rad, fuss){
+  const day = dep.toLocaleDateString("sv-SE",{timeZone:TZ}) !== new Date().toLocaleDateString("sv-SE",{timeZone:TZ}) ? dep.toLocaleDateString("de-DE",{weekday:"short",timeZone:TZ}) + " " : "";
+  if(dir === "hin"){
+    const arr = dauer ? ` → Marienstraße ca. <b class="num">${fmtTime(addMin(dep, dauer))}</b>` : "";
+    return `<div class="altrow"><div><b class="num">${day}${fmtTime(dep)}</b> ab Schloss${arr}</div>
+      <div class="small">🚲 los um <b class="num">${fmtTime(addMin(dep, -rad))}</b> · 🚶 los um <b class="num">${fmtTime(addMin(dep, -fuss))}</b>${timeMode==="now" && minsUntil(addMin(dep, -rad).toISOString()) < 60 ? ` <span class="muted">(${relWhen(addMin(dep, -rad).toISOString())} mit Rad)</span>` : ""}</div></div>`;
+  }
+  const atSchloss = dauer ? addMin(dep, dauer) : null;
+  return `<div class="altrow"><div><b class="num">${day}${fmtTime(dep)}</b> ab Marienstraße${atSchloss ? ` → Schloss ca. <b class="num">${fmtTime(atSchloss)}</b>` : ""}</div>
+    ${atSchloss ? `<div class="small">Zuhause 🚲 ca. <b class="num">${fmtTime(addMin(atSchloss, rad))}</b> · 🚶 ca. <b class="num">${fmtTime(addMin(atSchloss, fuss))}</b></div>` : `<div class="small muted">Fahrzeit unter Mehr eintragen, dann siehst du, wann du zuhause bist.</div>`}</div>`;
+}
+function initB6193Form(){
+  ["hin","hinDauer","rueck","rueckDauer","rad","fuss"].forEach(k => {
+    const el = $("b6193_"+k); el.value = b6193[k] ?? "";
+    el.addEventListener("change", () => { b6193[k] = el.value.trim(); store.set("b6193", b6193); $("b6193Saved").textContent = "Gespeichert ✓"; loadFavs(); });
+  });
+  const cb = $("b6193_nurWerktags"); cb.checked = !!b6193.nurWerktags;
+  cb.addEventListener("change", () => { b6193.nurWerktags = cb.checked; store.set("b6193", b6193); loadFavs(); });
+}
+
+/* ---------- Wecker ---------- */
+const alarms = store.get("alarms", {});
+function scheduleAlarms(){
+  Object.entries(alarms).forEach(([k,a]) => { if(new Date(a.at) < Date.now()-60000) delete alarms[k]; });
+  store.set("alarms", alarms);
+}
+setInterval(() => {
+  Object.entries(alarms).forEach(([k,a]) => {
+    if(Date.now() >= new Date(a.at)){ notify("alarm:"+k, "Los geht's! 🏃", a.title); delete alarms[k]; store.set("alarms", alarms); loadFavs(); }
+  });
+}, 15000);
+
+/* ---------- Eigene Ziele ---------- */
+function renderFavsFromCache(){
+  $("favList").innerHTML = favs.length ? favs.map((f,idx) => {
+    const its = favCache[f.id];
+    let body;
+    if(its === undefined) body = `<div class="muted small">Lade …</div>`;
+    else if(its === null) body = `<div class="muted small">Gerade keine Verbindung abrufbar.</div>`;
+    else if(!its.length) body = `<div class="muted small">Heute nix mehr. Morgen wieder.</div>`;
+    else body = its.map((it,n) => connHTML(it, n, f.name, { best: its.length > 1 ? its.find(t => !itinStatus(t).cx) : null })).join("");
+    return `<div class="card fav">
+      <div class="fh"><h3>${esc(f.name)}</h3>
+        <button class="iconbtn" data-del="${idx}" type="button" aria-label="${esc(f.name)} entfernen">✕</button></div>
+      ${body}
+    </div>`;
+  }).join("") : `<div class="card muted small">Noch keine eigenen Ziele. Tipp auf „+ Ziel“, z. B. für Schule oder Kumpels.</div>`;
+  renderAlerts();
+}
+function onConnClick(e){
+  const del = e.target.closest("[data-del]");
+  if(del){ favs.splice(+del.dataset.del,1); store.set("favs",favs); renderFavsFromCache(); return; }
+  const sh = e.target.closest("[data-share]");
+  if(sh){ shareText(sh.dataset.share, sh); return; }
+  const go = e.target.closest(".go[data-key]");
+  if(go){
+    const k = go.dataset.key;
+    if(alarms[k]) delete alarms[k];
+    else {
+      alarms[k] = { at:new Date(new Date(go.dataset.at) - 5*60000).toISOString(), title:`${go.dataset.name}: Abfahrt um ${fmtTime(go.dataset.at)}. Schuhe an!` };
+      askNotif();
+    }
+    store.set("alarms", alarms);
+    go.classList.toggle("on", !!alarms[k]); go.textContent = alarms[k] ? "⏰ Wecker an" : "⏰ 5 min vorher erinnern";
+  }
+}
+$("favList").addEventListener("click", onConnClick);
+$("routeList").addEventListener("click", onConnClick);
+async function shareText(text, btn){
+  try{ if(navigator.share){ await navigator.share({ text }); return; } }catch(e){ if(e && e.name === "AbortError") return; }
+  try{ await navigator.clipboard.writeText(text); btn.textContent = "Kopiert ✓ – jetzt einfügen"; }
+  catch(e){ btn.textContent = text; }
+}
+$("addFavBtn").addEventListener("click", () => { $("addFav").hidden = !$("addFav").hidden; if(!$("addFav").hidden) $("favSearch").focus(); });
+
+function stopSearch(input, results, onPick){
+  let t;
+  input.addEventListener("input", () => {
+    clearTimeout(t);
+    const q = input.value.trim();
+    if(q.length < 3){ results.innerHTML = ""; return; }
+    t = setTimeout(async () => {
+      try{
+        const r = await getJSON(`${API}/v1/geocode?text=${encodeURIComponent(q)}&type=STOP&place=${home.lat||53.88},${home.lon||9.57}`);
+        const list = Array.isArray(r) ? r : [];
+        results.innerHTML = list.slice(0,6).map((s,i) => `<button type="button" data-i="${i}">${esc(s.name)}<br><span class="small muted">${esc((s.areas||[]).slice(-2).map(a=>a.name).join(" · "))}</span></button>`).join("") || `<div class="small muted">Nix gefunden.</div>`;
+        results.onclick = e => { const b = e.target.closest("[data-i]"); if(b){ const s = list[+b.dataset.i]; onPick({id:s.id,name:s.name,lat:s.lat,lon:s.lon}); input.value=""; results.innerHTML=""; } };
+      }catch(e){ results.innerHTML = `<div class="small muted">Suche geht gerade nicht.</div>`; }
+    }, 350);
+  });
+}
+stopSearch($("favSearch"), $("favResults"), s => { if(!favs.some(f=>f.id===s.id)){ favs.push(s); store.set("favs",favs); } $("addFav").hidden = true; loadFavs(); });
+stopSearch($("homeSearch"), $("homeResults"), s => { home = s; boardStop = s; store.set("home", s); $("homeName").textContent = s.name; loadBoard(); loadFavs(); loadWeather(); });
+
+/* ---------- Alltag: Kontakte, Termine, To-dos, Geburtstage ---------- */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const todayYMD = () => new Date().toLocaleDateString("sv-SE",{timeZone:TZ});
+let contacts = store.get("contacts", []);
+let termine  = store.get("termine", []);
+let todos    = store.get("todos", []);
+let bdays    = store.get("bdays", []);
+const saveLife = () => { store.set("contacts",contacts); store.set("termine",termine); store.set("todos",todos); store.set("bdays",bdays); };
+const CAT = { arzt:"🩺 Ärzte", familie:"👪 Familie", freunde:"🤙 Freunde", schule:"🎒 Schule & Nachhilfe", arbeit:"💼 Arbeit", sonst:"📌 Sonstiges" };
+
+// Kontakte
+const telHref = p => "tel:" + (p||"").replace(/[^\d+]/g,"");
+const waHref = p => { let d = (p||"").replace(/[^\d+]/g,""); if(d.startsWith("+")) d = d.slice(1); else if(d.startsWith("00")) d = d.slice(2); else if(d.startsWith("0")) d = "49" + d.slice(1); return "https://wa.me/" + d; };
+function renderContacts(){
+  const q = $("cSearch").value.trim().toLowerCase();
+  const list = contacts.filter(c => !q || [c.name,c.note,c.phone,c.mail].join(" ").toLowerCase().includes(q));
+  if(!contacts.length){ $("cList").innerHTML = `<div class="small muted">Noch leer. Leg z. B. Hausarzt, Zahnarzt, Mama, Nachhilfelehrer und Chef an.</div>`; return; }
+  const groups = Object.keys(CAT).map(k => [k, list.filter(c => c.cat === k).sort((a,b) => a.name.localeCompare(b.name,"de"))]).filter(([,l]) => l.length);
+  $("cList").innerHTML = groups.map(([k,l]) => `<div class="cgroup"><div class="cgh">${CAT[k]}</div>${l.map(c => `
+    <details class="contact"><summary><span class="cname">${esc(c.name)}</span><span class="small muted">${esc(c.phone||c.mail||"")}</span></summary>
+      ${c.note ? `<div class="small muted">${esc(c.note)}</div>` : ""}
+      <div class="acts">
+        ${c.phone ? `<a class="go" href="${telHref(c.phone)}">📞 Anrufen</a><a class="go ghost" href="${waHref(c.phone)}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ""}
+        ${c.mail ? `<a class="go ghost" href="mailto:${esc(c.mail)}">✉️ Mail</a>` : ""}
+        <button class="go ghost" type="button" data-cedit="${c.id}">✏️</button>
+        <button class="go ghost" type="button" data-cdel="${c.id}">🗑️</button>
+      </div>
+    </details>`).join("")}</div>`).join("") || `<div class="small muted">Niemand gefunden.</div>`;
+}
+function openCForm(c){
+  $("cForm").hidden = false; $("cId").value = c?.id || ""; $("cName").value = c?.name || ""; $("cCat").value = c?.cat || "arzt";
+  $("cPhone").value = c?.phone || ""; $("cMail").value = c?.mail || ""; $("cNote").value = c?.note || ""; $("cName").focus();
+}
+$("cAddBtn").addEventListener("click", () => openCForm(null));
+$("cCancel").addEventListener("click", () => { $("cForm").hidden = true; });
+$("cForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const c = { id: $("cId").value || uid(), name:$("cName").value.trim(), cat:$("cCat").value, phone:$("cPhone").value.trim(), mail:$("cMail").value.trim(), note:$("cNote").value.trim() };
+  if(!c.name) return;
+  contacts = contacts.filter(x => x.id !== c.id).concat(c); saveLife(); $("cForm").hidden = true; renderContacts();
+});
+$("cSearch").addEventListener("input", renderContacts);
+$("cList").addEventListener("click", e => {
+  const ed = e.target.closest("[data-cedit]"); if(ed){ openCForm(contacts.find(c => c.id === ed.dataset.cedit)); return; }
+  const del = e.target.closest("[data-cdel]");
+  if(del){
+    if(del.dataset.sure){ contacts = contacts.filter(c => c.id !== del.dataset.cdel); saveLife(); renderContacts(); }
+    else { del.dataset.sure = "1"; del.textContent = "Echt löschen?"; setTimeout(() => { if(del.isConnected){ delete del.dataset.sure; del.textContent = "🗑️"; } }, 4000); }
+  }
+});
+
+// Termine
+const termDate = t => berlinToDate(`${t.date}T${t.time || "00:00"}`);
+function fmtDay(ymd){
+  const t = todayYMD(), tm = new Date(Date.now()+86400000).toLocaleDateString("sv-SE",{timeZone:TZ});
+  if(ymd === t) return "Heute"; if(ymd === tm) return "Morgen";
+  return new Date(ymd+"T12:00:00Z").toLocaleDateString("de-DE",{weekday:"short",day:"numeric",month:"short",timeZone:"UTC"});
+}
+const WHERE = { nachhilfe:"📚 Nachhilfe", lulu:"💛 Lulu", opa:"👴 Opa", hamburg:"🏙️ Hamburg" };
+function renderTermine(){
+  termine = termine.filter(t => t.date >= new Date(Date.now()-86400000).toLocaleDateString("sv-SE",{timeZone:TZ})); // Gestern und älter fliegen raus
+  const list = [...termine].sort((a,b) => (a.date+(a.time||"")).localeCompare(b.date+(b.time||"")));
+  $("tList").innerHTML = list.length ? list.map(t => {
+    const past = t.time && termDate(t) < Date.now();
+    const where = t.where === "other" ? (t.other ? "📍 " + esc(t.other) : "") : (WHERE[t.where] || "");
+    const canRoute = t.time && !past && (WHERE[t.where] || (t.where === "other" && t.other));
+    return `<div class="term ${past?"past":""}">
+      <div class="td"><b>${fmtDay(t.date)}</b><span class="num">${t.time || "ganztags"}</span></div>
+      <div style="min-width:0"><div class="tt">${esc(t.title)}</div>${where ? `<div class="small muted">${where}</div>` : ""}
+        <div class="acts" style="margin-top:6px">
+          ${canRoute ? `<button class="go" type="button" data-troute="${t.id}">🧭 Wie komm ich hin?</button>` : ""}
+          <button class="go ghost" type="button" data-tedit="${t.id}">✏️</button>
+          <button class="go ghost" type="button" data-tdel="${t.id}">🗑️</button>
+        </div></div>
+    </div>`;
+  }).join("") : `<div class="small muted">Keine Termine. Trag z. B. Arzt oder Nachhilfe ein, dann sagt dir die App, wann du los musst.</div>`;
+}
+function openTForm(t){
+  $("tForm").hidden = false; $("tId").value = t?.id || ""; $("tTitle").value = t?.title || "";
+  $("tDate").value = t?.date || todayYMD(); $("tTime").value = t?.time || ""; $("tWhere").value = t?.where || "";
+  $("tRemind").value = String(t?.remind ?? 60); $("tOther").value = t?.other || ""; $("tOtherWrap").hidden = $("tWhere").value !== "other"; $("tTitle").focus();
+}
+$("tWhere").addEventListener("change", () => { $("tOtherWrap").hidden = $("tWhere").value !== "other"; });
+$("tAddBtn").addEventListener("click", () => openTForm(null));
+$("tCancel").addEventListener("click", () => { $("tForm").hidden = true; });
+$("tForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const t = { id:$("tId").value || uid(), title:$("tTitle").value.trim(), date:$("tDate").value, time:$("tTime").value, where:$("tWhere").value, other:$("tOther").value.trim(), remind:+$("tRemind").value };
+  if(!t.title || !t.date) return;
+  termine = termine.filter(x => x.id !== t.id).concat(t); saveLife(); $("tForm").hidden = true; renderTermine(); renderToday();
+  if(t.remind) askNotif();
+});
+$("tList").addEventListener("click", e => {
+  const ed = e.target.closest("[data-tedit]"); if(ed){ openTForm(termine.find(t => t.id === ed.dataset.tedit)); return; }
+  const del = e.target.closest("[data-tdel]"); if(del){ termine = termine.filter(t => t.id !== del.dataset.tdel); saveLife(); renderTermine(); renderToday(); return; }
+  const ro = e.target.closest("[data-troute]"); if(ro) routeToTermin(termine.find(t => t.id === ro.dataset.troute));
+});
+// Termin → Wege-Tab mit "Da sein bis" (5 min Puffer)
+function routeToTermin(t){
+  if(t.where === "other"){
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(t.other)}&travelmode=transit`, "_blank", "noopener");
+    return;
+  }
+  const at = new Date(termDate(t).getTime() - 5*60000);
+  timeMode = "arr"; timeDate = t.date;
+  $("tmInput").hidden = false;
+  $("tmInput").value = at.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+  document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x.dataset.tm === "arr"));
+  showView("fav");
+  loadFavs().then(() => { const card = document.querySelector(`[data-route="${t.where}"]`); card && card.scrollIntoView({behavior:"smooth", block:"start"}); });
+}
+
+// To-dos
+function renderTodos(){
+  $("dList").innerHTML = todos.map(d => `<li class="${d.done?"done":""}"><label><input type="checkbox" data-dtoggle="${d.id}" ${d.done?"checked":""}> <span>${esc(d.text)}</span></label><button class="iconbtn sm" type="button" data-ddel="${d.id}" aria-label="To-do löschen">✕</button></li>`).join("");
+  $("dClear").hidden = !todos.some(d => d.done);
+}
+$("dForm").addEventListener("submit", e => { e.preventDefault(); const v = $("dText").value.trim(); if(!v) return; todos.unshift({ id:uid(), text:v, done:false }); $("dText").value = ""; saveLife(); renderTodos(); });
+$("dList").addEventListener("change", e => { const c = e.target.closest("[data-dtoggle]"); if(c){ const d = todos.find(x => x.id === c.dataset.dtoggle); d.done = c.checked; todos.sort((a,b) => a.done - b.done); saveLife(); renderTodos(); } });
+$("dList").addEventListener("click", e => { const b = e.target.closest("[data-ddel]"); if(b){ todos = todos.filter(x => x.id !== b.dataset.ddel); saveLife(); renderTodos(); } });
+$("dClear").addEventListener("click", () => { todos = todos.filter(d => !d.done); saveLife(); renderTodos(); });
+
+// Geburtstage
+function nextBday(b){
+  const t = todayYMD(), [, m, d] = b.date.split("-"), y = +t.slice(0,4);
+  let next = `${y}-${m}-${d}`; if(next < t) next = `${y+1}-${m}-${d}`;
+  const days = Math.round((Date.parse(next+"T12:00:00Z") - Date.parse(t+"T12:00:00Z"))/86400000);
+  const age = +b.date.slice(0,4) > 1900 ? (+next.slice(0,4) - +b.date.slice(0,4)) : null;
+  return { next, days, age };
+}
+function renderBdays(){
+  const list = bdays.map(b => ({ ...b, ...nextBday(b) })).sort((a,b) => a.days - b.days);
+  $("bList").innerHTML = list.length ? list.map(b => `<div class="bday ${b.days===0?"today":""}">
+    <div><b>${esc(b.name)}</b>${b.age ? ` <span class="small muted">wird ${b.age}</span>` : ""}<div class="small muted">${new Date(b.next+"T12:00:00Z").toLocaleDateString("de-DE",{day:"numeric",month:"long",timeZone:"UTC"})}</div></div>
+    <div class="bd num">${b.days===0 ? "🎉 Heute!" : b.days===1 ? "Morgen" : "in " + b.days + " Tagen"}</div>
+    <button class="iconbtn sm" type="button" data-bdel="${b.id}" aria-label="${esc(b.name)} löschen">✕</button>
+  </div>`).join("") : `<div class="small muted">Nie wieder Geburtstag vergessen. Wer zu spät gratuliert, zahlt die erste Runde. 🍻</div>`;
+}
+$("bAddBtn").addEventListener("click", () => { $("bForm").hidden = false; $("bName").focus(); });
+$("bCancel").addEventListener("click", () => { $("bForm").hidden = true; });
+$("bForm").addEventListener("submit", e => { e.preventDefault(); const n = $("bName").value.trim(), d = $("bDate").value; if(!n || !d) return; bdays.push({ id:uid(), name:n, date:d }); $("bName").value = ""; $("bDate").value = ""; $("bForm").hidden = true; saveLife(); renderBdays(); renderToday(); });
+$("bList").addEventListener("click", e => { const b = e.target.closest("[data-bdel]"); if(b){ bdays = bdays.filter(x => x.id !== b.dataset.bdel); saveLife(); renderBdays(); renderToday(); } });
+
+// Heute-Übersicht, Hinweise oben und Erinnerungen
+function renderToday(){
+  const t = todayYMD();
+  const items = [];
+  alertBuckets.life = [];
+  termine.filter(x => x.date === t).sort((a,b) => (a.time||"").localeCompare(b.time||"")).forEach(x => {
+    items.push(`📅 <b>${x.time || "heute"}</b> ${esc(x.title)}`);
+    if(x.time){ const m = Math.round((termDate(x) - Date.now())/60000); if(m > 0 && m <= 120) alertBuckets.life.push({kind:"",icon:"📅",html:`<b>${esc(x.title)}</b> in ${m} min (${x.time}).`}); }
+  });
+  bdays.map(b => ({ ...b, ...nextBday(b) })).filter(b => b.days <= 1).forEach(b => {
+    const txt = b.days === 0 ? `<b>${esc(b.name)}</b> hat heute Geburtstag! 🎂` : `<b>${esc(b.name)}</b> hat morgen Geburtstag. Geschenk? 🎁`;
+    items.push(txt); alertBuckets.life.push({kind:"ok",icon:"🎂",html:txt});
+  });
+  const open = todos.filter(d => !d.done).length;
+  if(open) items.push(`✅ ${open} offene${open===1?"s":""} To-do${open===1?"":"s"}`);
+  $("todayCard").hidden = !items.length;
+  $("todayCard").innerHTML = `<h3 class="ch">Heute</h3><div class="todaylist">${items.map(i => `<div>${i}</div>`).join("")}</div>`;
+  renderAlerts();
+}
+function checkReminders(){
+  const now = Date.now();
+  termine.forEach(x => {
+    if(!x.remind || !x.time) return;
+    const at = termDate(x).getTime() - x.remind*60000;
+    if(now >= at && now < termDate(x).getTime()) notify(`term:${x.id}:${x.remind}`, "Termin: " + x.title, `${fmtDay(x.date)} um ${x.time}` + (WHERE[x.where] ? ` (${WHERE[x.where]})` : ""));
+  });
+  bdays.forEach(b => { const n = nextBday(b); if(n.days === 0) notify(`bday:${b.id}:${n.next}`, "Geburtstag! 🎂", `${b.name} hat heute Geburtstag.`); });
+}
+setInterval(() => { checkReminders(); renderToday(); }, 60000);
+
+// Backup
+$("exportBtn").addEventListener("click", () => {
+  const data = { app:"moin-bus", version:1, saved:new Date().toISOString(), contacts, termine, todos, bdays, favs, home, b6193 };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type:"application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `moin-bus-backup-${todayYMD()}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  $("backupMsg").textContent = "Backup gespeichert ✓ (liegt in deinen Downloads)";
+});
+$("importFile").addEventListener("change", async e => {
+  const f = e.target.files[0]; if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    if(d.app !== "moin-bus") throw new Error("falsche Datei");
+    contacts = d.contacts || []; termine = d.termine || []; todos = d.todos || []; bdays = d.bdays || [];
+    if(d.favs) { favs = d.favs; store.set("favs", favs); }
+    if(d.home) { home = d.home; store.set("home", home); }
+    if(d.b6193) { b6193 = { ...b6193, ...d.b6193 }; store.set("b6193", b6193); }
+    saveLife(); renderLife(); loadFavs();
+    $("backupMsg").textContent = `Geladen ✓ ${contacts.length} Kontakte, ${termine.length} Termine, ${bdays.length} Geburtstage`;
+  }catch(err){ $("backupMsg").textContent = "Das ist keine Moin-Bus-Backup-Datei."; }
+  e.target.value = "";
+});
+function renderLife(){ renderContacts(); renderTermine(); renderTodos(); renderBdays(); renderToday(); }
+
+/* ---------- Wetter ---------- */
+const WMO = {0:["☀️","Klar"],1:["🌤️","Meist klar"],2:["⛅","Wolkig"],3:["☁️","Bedeckt, typisch Norden"],45:["🌫️","Nebel"],48:["🌫️","Raureif-Nebel"],51:["🌦️","Leichter Niesel"],53:["🌦️","Nieselregen"],55:["🌧️","Starker Niesel"],56:["🧊","Gefrierender Niesel"],57:["🧊","Gefrierender Niesel"],61:["🌧️","Leichter Regen"],63:["🌧️","Regen"],65:["🌧️","Schietwetter deluxe"],66:["🧊","Eisregen"],67:["🧊","Starker Eisregen"],71:["🌨️","Leichter Schnee"],73:["🌨️","Schnee"],75:["❄️","Viel Schnee"],77:["🌨️","Schneegriesel"],80:["🌦️","Schauer"],81:["🌧️","Kräftige Schauer"],82:["⛈️","Heftige Schauer"],85:["🌨️","Schneeschauer"],86:["❄️","Starke Schneeschauer"],95:["⛈️","Gewitter"],96:["⛈️","Gewitter mit Hagel"],99:["⛈️","Starkes Gewitter mit Hagel"]};
+const wmo = c => WMO[c] || ["🌡️","Wetter"];
+async function loadWeather(){
+  const la = home.lat || 53.888, lo = home.lon || 9.571;
+  try{
+    const j = await getJSON(`${WX}?latitude=${la}&longitude=${lo}&timezone=${encodeURIComponent(TZ)}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_gusts_10m&minutely_15=precipitation&forecast_minutely_15=24&hourly=temperature_2m,precipitation_probability,precipitation,weather_code&forecast_hours=14&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,weather_code,sunrise,sunset&forecast_days=3&models=icon_seamless`);
+    const c = j.current;
+    $("wTemp").textContent = Math.round(c.temperature_2m) + "°";
+    const [e, txt] = wmo(c.weather_code);
+    $("wCond").textContent = e + " " + txt;
+    $("wFeel").textContent = `Gefühlt ${Math.round(c.apparent_temperature)}° · Wind ${Math.round(c.wind_speed_10m)} km/h, Böen ${Math.round(c.wind_gusts_10m)}`;
+    $("sub").textContent = `${home.name.replace(/^Lägerdorf .*/,"Lägerdorf")} · ${e} ${Math.round(c.temperature_2m)}°`;
+
+    // Regen: 15-Minuten-Raster ab jetzt
+    const m = j.minutely_15, nowMs = Date.now();
+    // Open-Meteo liefert Berlin-Ortszeit ohne Zone
+    const local = m.time.map((t,i) => ({t: berlinToDate(t), p: m.precipitation[i] || 0}));
+    const fut = local.filter(s => s.t.getTime() + 15*60000 > nowMs).slice(0,16);
+    const max = Math.max(0.6, ...fut.map(s => s.p));
+    $("rainBars").innerHTML = fut.map(s => `<i class="${s.p<0.05?"dry":""}" style="height:${Math.max(3, s.p/max*100)}%" title="${fmtTime(s.t)}: ${s.p} mm"></i>`).join("");
+    $("rainX").innerHTML = [0,4,8,12].map(i => fut[i] ? `<span>${i===0?"jetzt":fmtTime(fut[i].t)}</span>` : "<span></span>").join("");
+    const wetIdx = fut.findIndex(s => s.p >= 0.1);
+    alertBuckets.wx = [];
+    let say;
+    if(wetIdx === -1) say = "Die nächsten 4 Stunden bleibt's trocken. Frisur hält. 💇";
+    else if(wetIdx === 0){
+      const dryIdx = fut.findIndex((s,i) => i>0 && s.p < 0.05);
+      say = dryIdx === -1 ? "Es regnet gerade und hört so schnell nicht auf. Kapuze auf!" : `Es regnet gerade, ab ca. ${fmtTime(fut[dryIdx].t)} wird's trocken.`;
+      alertBuckets.wx.push({kind:"rain",icon:"🌧️",html:"<b>Es regnet gerade.</b> " + (dryIdx===-1?"Schirm einpacken.":"Trocken ab ca. "+fmtTime(fut[dryIdx].t)+".")});
+    } else {
+      const st = fut[wetIdx];
+      const endIdx = fut.findIndex((s,i) => i>wetIdx && s.p < 0.05);
+      say = `Regen ab ca. ${fmtTime(st.t)}` + (endIdx>0 ? ` bis ${fmtTime(fut[endIdx].t)}.` : ", und der bleibt erstmal.");
+      const inMin = Math.round((st.t - nowMs)/60000);
+      if(inMin <= 45){
+        alertBuckets.wx.push({kind:"rain",icon:"☔",html:`<b>Regen in ca. ${Math.max(inMin,5)} min.</b> Jacke nicht vergessen.`});
+        notify("rain:"+st.t.toISOString().slice(0,13), "Gleich regnet's ☔", `Ab ca. ${fmtTime(st.t)} Regen in ${home.name.split(" ")[0]}.`);
+      }
+    }
+    $("rainSay").textContent = say;
+
+    // Stunden
+    const h = j.hourly;
+    $("hours").innerHTML = h.time.map((t,i) => ({t:berlinToDate(t), temp:h.temperature_2m[i], pp:h.precipitation_probability[i], c:h.weather_code[i]}))
+      .filter(x => x.t.getTime() > nowMs - 3600000).slice(0,12)
+      .map(x => `<div class="hour"><div class="small num">${fmtTime(x.t)}</div><div class="e">${wmo(x.c)[0]}</div><div class="num"><b>${Math.round(x.temp)}°</b></div><div class="p num">${x.pp ?? 0}%</div></div>`).join("");
+
+    // Tage
+    const d = j.daily, wd = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+    $("days").innerHTML = d.time.map((t,i) => {
+      const dt = berlinToDate(t+"T12:00");
+      const name = i===0 ? "Heute" : i===1 ? "Morgen" : wd[dt.getUTCDay()];
+      return `<div class="day"><b>${name}</b><span>${wmo(d.weather_code[i])[0]}</span><span class="small muted">${d.precipitation_probability_max[i] ?? 0}% Regen · ${d.precipitation_sum[i]} mm</span><span class="num"><b>${Math.round(d.temperature_2m_max[i])}°</b> <span class="muted">${Math.round(d.temperature_2m_min[i])}°</span></span></div>`;
+    }).join("") + `<div class="small muted" style="margin-top:6px">🌅 ${d.sunrise[0].slice(11)} · 🌇 ${d.sunset[0].slice(11)}</div>`;
+
+    // Klamotten-Tipp
+    const feel = c.apparent_temperature, rainSoon = wetIdx !== -1 && wetIdx <= 8, gust = c.wind_gusts_10m;
+    let tip;
+    if(feel < 0) tip = ["🧣","Arschkalt. Mütze, Schal, dicke Jacke. Keine Diskussion."];
+    else if(feel < 7) tip = ["🧥", rainSoon ? "Winterjacke mit Kapuze. Regen ist im Anmarsch." : "Winterjacke an. Hamburg-Frühling ist das nicht."];
+    else if(feel < 14) tip = ["🧥", rainSoon ? "Regenjacke. Sonst siehst du gleich aus wie 'n nasser Hund." : "Leichte Jacke reicht."];
+    else if(feel < 21) tip = ["👕", rainSoon ? "Pulli plus Regenjacke im Rucksack." : "Pulli oder Hoodie, fertig."];
+    else tip = ["😎", rainSoon ? "T-Shirt, aber Regenjacke mitnehmen." : "T-Shirt-Wetter. Deo nicht vergessen, Digga."];
+    if(gust >= 50) tip[1] += " Und es stürmt ordentlich, Schirm kannst du knicken.";
+    $("tip").innerHTML = `<div class="e">${tip[0]}</div><div><b>Was anziehen?</b><br>${tip[1]}</div>`;
+  }catch(e){
+    $("rainSay").textContent = "Wetter gerade nicht abrufbar. Guck aus dem Fenster 🙃";
+  }
+  renderAlerts();
+}
+// Open-Meteo-Zeiten ("2026-11-05T19:15") sind Berlin-Ortszeit -> echtes Date
+function berlinToDate(local){
+  const [d,t="00:00"] = local.split("T");
+  const guess = new Date(`${d}T${t}:00Z`);
+  const off = tzOffsetMin(guess);
+  return new Date(guess.getTime() - off*60000);
+}
+function tzOffsetMin(date){
+  const s = date.toLocaleString("sv-SE",{timeZone:TZ}).replace(" ","T")+"Z";
+  return Math.round((new Date(s) - date)/60000);
+}
+
+/* ---------- Sprüche ---------- */
+const JOKES = [
+  "Der 6550 ist wie dein Ex: kommt nie, wenn du ihn brauchst, und wenn doch, dann mit Verspätung.",
+  "Schietwetter ist nur, wenn man die falsche Jacke anhat. Oder keine Hose.",
+  "Lägerdorf hat mehr Kreide als die ganze Schule zusammen, und trotzdem schreibt keiner Hausaufgaben.",
+  "Busfahrer-Weisheit: Wer rennt, kriegt den Bus. Wer furzt, kriegt den ganzen Bus für sich.",
+  "In Hamburg sagt man Moin. Wer Moin Moin sagt, labert schon.",
+  "Der Wetterbericht sagt 30 % Regen. Heißt im Norden: 100 % auf deinen Kopf.",
+  "Wer morgens den Bus verpasst, hat abends mehr Schritte auf der Uhr. Win-win, Digga.",
+  "Franzbrötchen zählen nicht als Kalorien, wenn man sie im Bus isst. Physik.",
+  "Wind von vorn auf'm Fahrrad ist Norddeutschlands Fitnessstudio. Kostet nix, macht trotzdem keinen Bock.",
+  "Bus fällt aus? Perfekter Moment, um so zu tun, als hättest du's schon gewusst."
+];
+let jokeI = Math.floor(Date.now()/86400000) % JOKES.length;
+const showJoke = () => { $("joke").textContent = JOKES[jokeI % JOKES.length]; };
+$("jokeBtn").addEventListener("click", () => { jokeI++; showJoke(); });
+
+/* ---------- Benachrichtigungen ---------- */
+function notifLabel(){
+  if(!("Notification" in window)){ $("notifState").textContent = "Dein Browser kann das nicht. Tipp: App zum Startbildschirm hinzufügen."; $("notifBtn").hidden = true; return; }
+  const p = Notification.permission;
+  $("notifState").textContent = p === "granted" ? "✅ an" : p === "denied" ? "❌ blockiert (in den Browser-Einstellungen freigeben)" : "";
+  $("notifBtn").hidden = p === "granted";
+}
+async function askNotif(){
+  try{ if("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); }catch(e){}
+  notifLabel();
+}
+$("notifBtn").addEventListener("click", askNotif);
+$("topic").textContent = topic;
+$("copyTopic").addEventListener("click", async () => {
+  try{ await navigator.clipboard.writeText(topic); $("copyTopic").textContent = "Kopiert ✓"; }
+  catch(e){ const r = document.createRange(); r.selectNodeContents($("topic")); getSelection().removeAllRanges(); getSelection().addRange(r); }
+});
+$("themeBtn").addEventListener("click", () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next; store.set("theme", next);
+});
+{ const t = store.get("theme", null); if(t) document.documentElement.dataset.theme = t; }
+
+/* ---------- Tabs ---------- */
+const views = {dep:"v-dep", fav:"v-fav", life:"v-life", wx:"v-wx", more:"v-more"};
+function showView(v){
+  Object.entries(views).forEach(([k,id]) => $(id).hidden = k !== v);
+  document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
+  if(location.hash !== "#"+v) history.replaceState(null, "", "#"+v);
+}
+document.querySelector("nav.tabs").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if(b) showView(b.dataset.v); });
+window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if(views[v]) showView(v); });
+
+/* ---------- Start ---------- */
+$("homeName").textContent = home.name;
+renderOrigins();
+initB6193Form();
+renderLife(); checkReminders();
+tickClock(); showJoke(); notifLabel(); scheduleAlarms();
+{ const v = location.hash.slice(1); if(views[v]) showView(v); }
+loadBoard(); loadFavs(); loadWeather();
+setInterval(tickClock, 15000);
+setInterval(() => { if(!document.hidden){ loadBoard(); loadFavs(); } }, 60000);
+setInterval(() => { if(!document.hidden) loadWeather(); }, 10*60000);
+document.addEventListener("visibilitychange", () => { if(!document.hidden){ loadBoard(); loadFavs(); loadWeather(); } });
+if("serviceWorker" in navigator && location.protocol === "https:"){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>
