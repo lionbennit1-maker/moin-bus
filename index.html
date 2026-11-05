@@ -221,7 +221,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent)}
   <div class="alerts" id="alerts" aria-live="polite"></div>
 
   <!-- ABFAHRTEN -->
-  <section class="view" id="v-dep">
+  <section class="view" id="v-dep" hidden>
     <div class="board">
       <div class="bh"><span id="boardStop">Lägerdorf Schule</span><button id="nearBtn" type="button">📍 In der Nähe</button></div>
       <div id="board"><div class="empty">Lade Abfahrten …</div></div>
@@ -402,8 +402,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent)}
 </div>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" aria-selected="true" data-v="dep"><span class="i">🚌</span>Abfahrten</button>
-  <button role="tab" aria-selected="false" data-v="fav"><span class="i">🧭</span>Wege</button>
+  <button role="tab" aria-selected="true" data-v="fav"><span class="i">🧭</span>Wege</button>
   <button role="tab" aria-selected="false" data-v="life"><span class="i">📒</span>Alltag</button>
   <button role="tab" aria-selected="false" data-v="wx"><span class="i">☔</span>Wetter</button>
   <button role="tab" aria-selected="false" data-v="more"><span class="i">☰</span>Mehr</button>
@@ -1227,7 +1226,7 @@ $("themeBtn").addEventListener("click", () => {
 { const t = store.get("theme", null); if(t) document.documentElement.dataset.theme = t; }
 
 /* ---------- Tabs ---------- */
-const views = {dep:"v-dep", fav:"v-fav", life:"v-life", wx:"v-wx", more:"v-more"};
+const views = {fav:"v-fav", life:"v-life", wx:"v-wx", more:"v-more"};
 function showView(v){
   Object.entries(views).forEach(([k,id]) => $(id).hidden = k !== v);
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
@@ -1242,7 +1241,7 @@ renderOrigins();
 initB6193Form();
 renderLife(); checkReminders();
 tickClock(); showJoke(); notifLabel(); scheduleAlarms();
-{ const v = location.hash.slice(1); if(views[v]) showView(v); }
+{ const v = location.hash.slice(1); showView(views[v] ? v : "fav"); }
 loadBoard(); loadFavs(); loadWeather();
 setInterval(tickClock, 15000);
 setInterval(() => { if(!document.hidden){ loadBoard(); loadFavs(); } }, 60000);
