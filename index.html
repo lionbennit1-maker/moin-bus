@@ -105,6 +105,7 @@ section.view{margin-top:18px;display:grid;gap:16px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
 .seg button{border:0;background:none;padding:7px 11px;font-weight:600;font-size:14px;cursor:pointer;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.when-bar input[type=date]{width:auto;padding:7px 10px}
 input[type=time]{padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
 .pills,.wide,.acts{grid-column:1/-1}
 .pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:-2px}
@@ -239,6 +240,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent)}
         <button type="button" data-tm="dep" aria-pressed="false">Los um</button>
         <button type="button" data-tm="arr" aria-pressed="false">Da sein bis</button>
       </div>
+      <input type="date" id="dtInput" aria-label="Datum (leer = heute)" title="Datum (leer = heute)" hidden>
       <input type="time" id="tmInput" aria-label="Uhrzeit" hidden>
     </div>
     <div id="routeList" style="display:grid;gap:12px"></div>
@@ -435,9 +437,18 @@ const minsUntil = iso => Math.round((new Date(iso) - Date.now())/60000);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const delayMin = (act, sch) => (act && sch) ? Math.round((new Date(act)-new Date(sch))/60000) : 0;
 async function getJSON(url){
-  const r = await fetch(url);
-  if(!r.ok) throw new Error("HTTP "+r.status);
-  return r.json();
+  // Transitous drosselt bei vielen parallelen Abfragen: bei Fehler bis zu 2× nach kurzer Pause nochmal probieren
+  let err;
+  for(let i = 0; i < 3; i++){
+    if(i) await new Promise(r => setTimeout(r, 1200 * i + Math.random() * 600));
+    try{
+      const r = await fetch(url);
+      if(r.ok) return r.json();
+      err = new Error("HTTP "+r.status);
+      if(r.status < 500 && r.status !== 429) break;
+    }catch(e){ err = e; }
+  }
+  throw err;
 }
 function relWhen(iso){
   const m = minsUntil(iso);
@@ -586,9 +597,11 @@ try{ navigator.permissions && navigator.permissions.query({ name:"geolocation" }
 // Zeitwahl
 document.querySelector(".seg").addEventListener("click", e => {
   const b = e.target.closest("[data-tm]"); if(!b) return;
-  timeMode = b.dataset.tm; timeDate = null;
+  timeMode = b.dataset.tm;
+  if(timeMode === "now") $("dtInput").value = "";
+  timeDate = $("dtInput").value || null;
   document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b));
-  $("tmInput").hidden = timeMode === "now";
+  $("tmInput").hidden = $("dtInput").hidden = timeMode === "now";
   if(timeMode !== "now" && !$("tmInput").value){
     const d = new Date(Date.now() + 60*60000);
     $("tmInput").value = d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
@@ -596,6 +609,7 @@ document.querySelector(".seg").addEventListener("click", e => {
   loadFavs();
 });
 $("tmInput").addEventListener("change", loadFavs);
+$("dtInput").addEventListener("change", () => { timeDate = $("dtInput").value || null; loadFavs(); });
 function timeParams(){
   if(timeMode === "now" || !$("tmInput").value) return "";
   const [hh, mm] = $("tmInput").value.split(":");
@@ -649,7 +663,12 @@ async function loadFavs(){
   const dests = ["home","lulu","nachhilfe","opa","hamburg"].filter(k => k !== o.key).map(placeOf);
   const extra = timeParams();
   dests.forEach(d => { routeCache[d.key] = routeCache[d.key] || undefined; });
+  routeCache.via6180 = undefined;
+  const tok = ++via6180Tok;
   renderRoutes(o, dests);
+  if(o.key === "home" || o.key === "lulu"){
+    via6180(o.key === "home" ? "hin" : "rueck").catch(() => null).then(r => { if(tok !== via6180Tok) return; routeCache.via6180 = r; renderRoutes(o, dests); });
+  }
   await Promise.all(dests.map(async d => {
     let trips = await bestTrips(fromVariants(o), d.stops, extra);
     // Kellinghusen-Daten sind lückenhaft: absurde Ergebnisse wegwerfen
@@ -749,7 +768,7 @@ function renderRoutes(o, dests){
       ${verdict ? `<div class="verdict">${verdict}</div>` : ""}
       ${lastHome}
       ${body}
-      ${(o.key === "home" && d.key === "lulu") || (o.key === "lulu" && d.key === "home") ? bus6193HTML(o.key === "home" ? "hin" : "rueck") : ""}
+      ${(o.key === "home" && d.key === "lulu") || (o.key === "lulu" && d.key === "home") ? bus6193HTML(o.key === "home" ? "hin" : "rueck") + via6180HTML(o.key === "home" ? "hin" : "rueck") : ""}
       ${gap ? `<div class="gapnote small">ℹ️ Die Busse Kellinghusen ↔ Itzehoe/Wrist fehlen teilweise in den offenen Fahrplandaten.</div>` : ""}
       <a class="maps small" href="${mapsLink(oPlace, d.key==="home" ? placeOf("home") : d)}" target="_blank" rel="noopener">In Google Maps gegenchecken ↗</a>
     </div>`;
@@ -828,6 +847,107 @@ function initB6193Form(){
   });
   const cb = $("b6193_nurWerktags"); cb.checked = !!b6193.nurWerktags;
   cb.addEventListener("change", () => { b6193.nurWerktags = cb.checked; store.set("b6193", b6193); loadFavs(); });
+}
+
+/* ---------- 6180 über Itzehoe (Zubringer aus Live-Daten + Umstieg in die 6180 nach Fahrplan) ---------- */
+// Fahrplan Holsten-Express, Jahresfahrplan bis 12.12.2026. Feiertage sind nicht berücksichtigt (dann Sonntagsfahrplan).
+// "+46" = diese Fahrt braucht 46 statt der normalen Minuten.
+const B6180_GUELTIG_BIS = "2026-12-12";
+const ITZ_ZOB = { place:"de-DELFI_000010091802", label:"Itzehoe ZOB" }; // Haltestellen-ID statt Koordinaten: sonst braucht Transitous ~20 s
+const B6180 = {
+  hin: { // ab Itzehoe ZOB, bis Kellinghusen Marienstraße
+    wk:"5:05, 5:50, 6:55+46, 7:40+44, 9:05, 10:05, 10:55+46, 12:05, 13:05, 13:35+46, 14:05, 14:35+46, 15:05, 15:35+46, 16:05, 17:00+44, 18:05, 19:05, 20:05, 22:05",
+    sa:"6:05, 7:05, 8:05, 9:05, 10:05, 10:55+46, 13:05, 14:05, 15:05, 17:05, 18:05, 20:05, 22:05",
+    so:"9:05, 10:55+46, 13:05, 19:05",
+    dauer:{ wk:38, sa:38, so:38 } },
+  rueck: { // ab Kellinghusen Marienstraße, bis Itzehoe ZOB (Fahrzeit werktags ca.)
+    wk:"6:09, 8:19, 9:19, 10:19, 11:14, 12:19, 13:19, 14:14, 14:34, 15:14, 15:34, 16:14, 16:34, 17:19, 18:14, 19:14, 20:19, 21:19, 23:14",
+    sa:"7:14, 8:14, 9:14+45, 10:14, 11:14, 12:14, 14:14, 15:14, 16:14, 18:14, 19:14, 21:14, 23:14",
+    so:"10:14, 20:14",
+    dauer:{ wk:40, sa:39, so:39 } }
+};
+const BUF6180 = 4; // Umsteigezeit in Itzehoe (min)
+function dayGroup(ymd){ const wd = new Date(ymd+"T12:00:00Z").getUTCDay(); return wd === 0 ? "so" : wd === 6 ? "sa" : "wk"; }
+// alle Abfahrten der 6180 rund um "around" (1 Tag davor bis 4 Tage danach), sortiert
+function buses6180(dir, around){
+  const out = [], seen = new Set();
+  for(let day = -1; day <= 4; day++){
+    const ymd = new Date(around.getTime() + day*86400000).toLocaleDateString("sv-SE",{timeZone:TZ});
+    if(seen.has(ymd)) continue; seen.add(ymd);
+    const g = dayGroup(ymd);
+    parseTimes(B6180[dir][g]).forEach(x => out.push({ d: berlinToDate(`${ymd}T${x.t.padStart(5,"0")}`), dauer: x.dauer ?? B6180[dir].dauer[g] }));
+  }
+  return out.sort((a,b) => a.d - b.d);
+}
+const nextBuses6180 = (dir, from, n) => buses6180(dir, from).filter(b => b.d >= from).slice(0, n);
+const prevBus6180 = (dir, latestArrival) => buses6180(dir, latestArrival).filter(b => addMin(b.d, b.dauer) <= latestArrival).pop() || null;
+
+let via6180Tok = 0;
+async function via6180(dir){
+  const homeP = placeOf("home"), ref = refTime();
+  if(dir === "hin"){ // Zuhause → Itzehoe ZOB (live) → 6180 → Kellinghusen
+    if(timeMode === "arr"){
+      const cands = buses6180("hin", ref).filter(b => addMin(b.d, b.dauer) <= ref).reverse().slice(0, 4);
+      for(const b of cands){
+        const t = await bestTrips(fromVariants(homeP), [ITZ_ZOB], `&time=${addMin(b.d, -BUF6180).toISOString()}&arriveBy=true`);
+        if(t && t.length) return [{ trip:t[t.length-1], bus:b }];
+      }
+      return [];
+    }
+    const trips = await bestTrips(fromVariants(homeP), [ITZ_ZOB], timeParams());
+    if(!trips) return null;
+    const byBus = new Map();
+    for(const t of trips){
+      const b = nextBuses6180("hin", addMin(new Date(t.endTime), BUF6180), 1)[0];
+      if(!b) continue;
+      const prev = byBus.get(+b.d);
+      if(!prev || new Date(t.startTime) > new Date(prev.trip.startTime)) byBus.set(+b.d, { trip:t, bus:b });
+    }
+    return [...byBus.values()].sort((a,b) => a.bus.d - b.bus.d).slice(0, 3);
+  }
+  // Lulu → 6180 → Itzehoe ZOB → Zuhause (live)
+  if(timeMode === "arr"){
+    const t = await bestTrips([ITZ_ZOB], homeP.stops, timeParams());
+    if(!t) return null;
+    for(const tr of [...t].reverse()){
+      const b = prevBus6180("rueck", addMin(new Date(tr.startTime), -BUF6180));
+      if(b) return [{ bus:b, trip:tr }];
+    }
+    return [];
+  }
+  const buses = nextBuses6180("rueck", ref, 3);
+  const res = await Promise.all(buses.map(async b => {
+    const t = await bestTrips([ITZ_ZOB], homeP.stops, `&time=${addMin(b.d, b.dauer + BUF6180).toISOString()}`).catch(() => null);
+    return t && t.length ? { bus:b, trip:t[0] } : null;
+  }));
+  return res.some(Boolean) ? res.filter(Boolean) : (buses.length ? null : []);
+}
+const dayPre = d => d.toLocaleDateString("sv-SE",{timeZone:TZ}) !== new Date().toLocaleDateString("sv-SE",{timeZone:TZ}) ? d.toLocaleDateString("de-DE",{weekday:"short",timeZone:TZ}) + " " : "";
+const legBadges = it => it.legs.map(l => l.mode === "WALK" ? "" : `<span class="badge ${badgeClass(l.mode)}">${esc(l.routeShortName||l.displayName||l.mode)}</span>`).join("");
+function via6180Row(x, dir){
+  const { trip:t, bus:b } = x, busArr = addMin(b.d, b.dauer);
+  const bus = `<span class="badge bus">6180</span>`;
+  if(dir === "hin") return `<div class="altrow">
+    <div><b class="num">${dayPre(new Date(t.startTime))}${fmtTime(t.startTime)}</b> los ${legBadges(t)} → Itzehoe ZOB <b class="num">${fmtTime(t.endTime)}</b></div>
+    <div class="small">${bus} ab Itzehoe ZOB <b class="num">${fmtTime(b.d)}</b> → Marienstraße ca. <b class="num">${fmtTime(busArr)}</b></div></div>`;
+  return `<div class="altrow">
+    <div><b class="num">${dayPre(b.d)}${fmtTime(b.d)}</b> ${bus} ab Marienstraße → Itzehoe ZOB ca. <b class="num">${fmtTime(busArr)}</b></div>
+    <div class="small">${legBadges(t)} ab ZOB <b class="num">${fmtTime(t.startTime)}</b> → zuhause <b class="num">${fmtTime(t.endTime)}</b></div></div>`;
+}
+function via6180HTML(dir){
+  const r = routeCache.via6180;
+  let inner;
+  if(r === undefined) inner = `<div class="small muted">Rechne …</div>`;
+  else if(r === null) inner = `<div class="small muted">Gerade keine Verbindung bis Itzehoe abrufbar.</div>`;
+  else if(!r.length) inner = `<div class="small muted">${timeMode === "arr" ? "Über Itzehoe schaffst du's bis dahin nicht." : "Keine passende 6180 in den nächsten Tagen."}</div>`;
+  else inner = r.map(x => via6180Row(x, dir)).join("");
+  const old = new Date().toLocaleDateString("sv-SE",{timeZone:TZ}) > B6180_GUELTIG_BIS;
+  return `<div class="alt6193">
+    <div class="alth"><span class="badge bus">6180</span> <b>über Itzehoe</b> <span class="small muted">(${BUF6180} min Umstieg)</span></div>
+    ${old ? `<div class="small" style="color:var(--warn)">⚠️ Fahrplanwechsel war am 13.12. Die 6180-Zeiten in der App sind veraltet.</div>` : ""}
+    ${inner}
+    <div class="small muted">6180 nach Fahrplan (Mo–Fr, Sa, So), nicht live. Feiertage sind nicht berücksichtigt.</div>
+  </div>`;
 }
 
 /* ---------- Wecker ---------- */
@@ -1009,7 +1129,7 @@ function routeToTermin(t){
   }
   const at = new Date(termDate(t).getTime() - 5*60000);
   timeMode = "arr"; timeDate = t.date;
-  $("tmInput").hidden = false;
+  $("tmInput").hidden = false; $("dtInput").hidden = false; $("dtInput").value = t.date;
   $("tmInput").value = at.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
   document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x.dataset.tm === "arr"));
   showView("fav");
