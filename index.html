@@ -1199,7 +1199,7 @@ setInterval(() => { checkReminders(); renderToday(); }, 60000);
 
 // Backup
 $("exportBtn").addEventListener("click", () => {
-  const data = { app:"moin-bus", version:1, saved:new Date().toISOString(), contacts, termine, todos, bdays, favs, home, b6193 };
+  const data = { app:"moin-bus", version:1, saved:new Date().toISOString(), contacts, termine, todos, bdays, favs, home, b6193, topic };
   const blob = new Blob([JSON.stringify(data, null, 1)], { type:"application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `moin-bus-backup-${todayYMD()}.json`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -1214,8 +1214,13 @@ $("importFile").addEventListener("change", async e => {
     if(d.favs) { favs = d.favs; store.set("favs", favs); }
     if(d.home) { home = d.home; store.set("home", home); }
     if(d.b6193) { b6193 = { ...b6193, ...d.b6193 }; store.set("b6193", b6193); }
+    let topicMsg = "";
+    if(typeof d.topic === "string" && /^moinbus-[a-z0-9]{6,40}$/.test(d.topic)){
+      if(d.topic !== topic){ topic = d.topic; store.set("topic", topic); $("topic").textContent = topic; }
+      topicMsg = ", ntfy-Kanal wiederhergestellt";
+    }
     saveLife(); renderLife(); loadFavs();
-    $("backupMsg").textContent = `Geladen ✓ ${contacts.length} Kontakte, ${termine.length} Termine, ${bdays.length} Geburtstage`;
+    $("backupMsg").textContent = `Geladen ✓ ${contacts.length} Kontakte, ${termine.length} Termine, ${bdays.length} Geburtstage${topicMsg}`;
   }catch(err){ $("backupMsg").textContent = "Das ist keine Moin-Bus-Backup-Datei."; }
   e.target.value = "";
 });
